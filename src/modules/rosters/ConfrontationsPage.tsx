@@ -322,7 +322,7 @@ export default function ConfrontationsPage() {
 
       {/* Create/Edit Modal */}
       <Modal
-        isOpen={modalOpen}
+        open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editing ? 'Editar Enfrentamiento' : 'Nuevo Enfrentamiento'}
         size="lg"
@@ -419,13 +419,12 @@ export default function ConfrontationsPage() {
 
       {/* Delete confirmation */}
       <ConfirmDialog
-        isOpen={!!deleteTarget}
+        open={!!deleteTarget}
         title="Eliminar Enfrentamiento"
         message={`¿Eliminar el enfrentamiento ${deleteTarget?.home_league?.name} vs ${deleteTarget?.away_league?.name} (${deleteTarget?.category})?`}
         confirmLabel="Eliminar"
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
-        danger
+        onClose={() => setDeleteTarget(null)}
       />
     </div>
   );

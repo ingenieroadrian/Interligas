@@ -286,7 +286,7 @@ export default function ResultsPage() {
 
       {/* Assignment Modal */}
       <Modal
-        isOpen={!!editTarget}
+        open={!!editTarget}
         onClose={() => setEditTarget(null)}
         title="Asignar Cancha y Horario"
         size="sm"
