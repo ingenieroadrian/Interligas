@@ -8,20 +8,8 @@ import {
   UserIcon,
   LockClosedIcon,
 } from '@heroicons/react/24/outline';
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragStartEvent,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
-import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { supabase } from '../../lib/supabase';
-import type { Confrontation, Roster, Player, Coach } from '../../types/database';
+import type { Confrontation, Roster, Player } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import { toast } from '../../components/Toast';
 
@@ -72,7 +60,6 @@ function validateSlots(slots: Record<SlotKey, string | null>, players: Player[])
   const pA = findPlayer(slots.slot_doubles_a);
   const pB = findPlayer(slots.slot_doubles_b);
 
-  // slot_1 and slot_2: ranking must be 2 or 3
   if (p1 && p1.ranking !== null && ![2, 3].includes(p1.ranking))
     errors.push(`Partido 1: el jugador debe tener ranking 2 o 3 (actual: ${p1.ranking})`);
   if (p2 && p2.ranking !== null && ![2, 3].includes(p2.ranking))
@@ -80,7 +67,6 @@ function validateSlots(slots: Record<SlotKey, string | null>, players: Player[])
   if (p1 && p2 && p1.id === p2.id)
     errors.push('Partido 1 y Partido 2 no pueden tener el mismo jugador');
 
-  // doubles: valid combos are ranks 1+2, 1+3, 2+3
   if (pA && pB) {
     if (pA.id === pB.id) {
       errors.push('Los jugadores de dobles deben ser diferentes');
@@ -96,94 +82,54 @@ function validateSlots(slots: Record<SlotKey, string | null>, players: Player[])
   return errors;
 }
 
-// ─── Draggable Player Card ────────────────────────────────────────────────────
-function DraggablePlayer({ player, disabled }: { player: Player; disabled: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: player.id,
-    disabled,
-  });
-
-  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-grab select-none transition-all ${
-        isDragging
-          ? 'opacity-40'
-          : disabled
-          ? 'bg-slate-50 border-slate-200 cursor-not-allowed'
-          : 'bg-white border-navy-200 hover:border-navy-400 hover:shadow-sm active:cursor-grabbing'
-      }`}
-    >
-      <div className="w-7 h-7 rounded-full bg-navy-100 flex items-center justify-center flex-shrink-0">
-        <UserIcon className="w-3.5 h-3.5 text-navy-600" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-navy-800 truncate">{player.full_name}</p>
-        {player.ranking !== null && (
-          <p className="text-xs text-navy-400">Ranking #{player.ranking}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Roster Slot Drop Zone ────────────────────────────────────────────────────
-function RosterSlot({
+function SlotSelect({
   slotKey,
-  player,
-  onRemove,
+  value,
+  players,
+  usedIds,
+  onChange,
   locked,
 }: {
   slotKey: SlotKey;
-  player: Player | null;
-  onRemove: () => void;
+  value: string | null;
+  players: Player[];
+  usedIds: Set<string>;
+  onChange: (id: string | null) => void;
   locked: boolean;
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: slotKey });
+  const available = players.filter(p => p.id === value || !usedIds.has(p.id));
 
   return (
-    <div
-      ref={setNodeRef}
-      className={`rounded-xl border-2 border-dashed p-3 transition-all min-h-[72px] ${
-        isOver ? 'border-navy-400 bg-navy-50' : 'border-slate-200 bg-white'
-      }`}
-    >
-      <div className="flex items-center justify-between mb-1.5">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 transition-all">
+      <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-navy-700">{SLOT_LABELS[slotKey]}</p>
         <p className="text-xs text-navy-400">{SLOT_HINTS[slotKey]}</p>
       </div>
-      {player ? (
+      {locked ? (
         <div className="flex items-center gap-2 px-3 py-2 bg-navy-50 rounded-lg border border-navy-200">
-          <div className="w-6 h-6 rounded-full bg-navy-200 flex items-center justify-center flex-shrink-0">
-            <UserIcon className="w-3 h-3 text-navy-700" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-navy-800 truncate">{player.full_name}</p>
-            {player.ranking !== null && (
-              <p className="text-xs text-navy-400">Ranking #{player.ranking}</p>
-            )}
-          </div>
-          {!locked && (
-            <button onClick={onRemove} className="text-navy-400 hover:text-red-500 transition-colors ml-1 flex-shrink-0">
-              <XCircleIcon className="w-4 h-4" />
-            </button>
-          )}
+          <UserIcon className="w-4 h-4 text-navy-600 flex-shrink-0" />
+          <span className="text-sm text-navy-800">
+            {value ? players.find(p => p.id === value)?.full_name || '—' : '—'}
+          </span>
         </div>
       ) : (
-        <div className="flex items-center justify-center h-8">
-          <p className="text-xs text-slate-400">Arrastra un jugador aquí</p>
-        </div>
+        <select
+          className="input-field w-full"
+          value={value || ''}
+          onChange={e => onChange(e.target.value || null)}
+        >
+          <option value="">Seleccionar jugador...</option>
+          {available.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
+            </option>
+          ))}
+        </select>
       )}
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function RosterPage() {
   const { id: confrontationId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -198,7 +144,6 @@ export default function RosterPage() {
     slot_doubles_a: null,
     slot_doubles_b: null,
   });
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -206,8 +151,6 @@ export default function RosterPage() {
   const { remaining, expired } = useCountdown(confrontation?.deadline || null);
 
   const locked = roster?.is_submitted || expired || confrontation?.status === 'cerrada';
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const loadData = useCallback(async () => {
     if (!confrontationId || !coachProfile) return;
@@ -250,38 +193,12 @@ export default function RosterPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Live validation
   useEffect(() => {
     setValidationErrors(validateSlots(slots, players));
   }, [slots, players]);
 
-  function handleDragStart(e: DragStartEvent) {
-    setActiveId(e.active.id as string);
-  }
-
-  function handleDragEnd(e: DragEndEvent) {
-    const { over, active } = e;
-    setActiveId(null);
-    if (!over) return;
-
-    const targetSlot = over.id as SlotKey;
-    const playerId = active.id as string;
-
-    if (!Object.keys(slots).includes(targetSlot)) return;
-
-    // Prevent placing the same player in multiple slots
-    const occupiedByOther = (Object.keys(slots) as SlotKey[]).filter(
-      k => k !== targetSlot && slots[k] === playerId
-    );
-    occupiedByOther.forEach(k => {
-      setSlots(prev => ({ ...prev, [k]: null }));
-    });
-
-    setSlots(prev => ({ ...prev, [targetSlot]: playerId }));
-  }
-
-  function removeFromSlot(slotKey: SlotKey) {
-    setSlots(prev => ({ ...prev, [slotKey]: null }));
+  function handleSlotChange(slotKey: SlotKey, playerId: string | null) {
+    setSlots(prev => ({ ...prev, [slotKey]: playerId }));
   }
 
   async function handleSave(submit = false) {
@@ -322,9 +239,7 @@ export default function RosterPage() {
     setSaving(false);
   }
 
-  const activePlayer = activeId ? players.find(p => p.id === activeId) : null;
-  const slotPlayerIds = new Set(Object.values(slots).filter(Boolean));
-  const availablePlayers = players.filter(p => !slotPlayerIds.has(p.id));
+  const usedIds = new Set(Object.values(slots).filter(Boolean) as string[]);
 
   if (loading) {
     return (
@@ -344,7 +259,7 @@ export default function RosterPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-3xl mx-auto">
       {/* Header */}
       <div>
         <button
@@ -361,7 +276,6 @@ export default function RosterPage() {
               {confrontation.home_league?.name} vs {confrontation.away_league?.name} — {confrontation.category}
             </p>
           </div>
-          {/* Countdown */}
           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${expired ? 'bg-red-50 border-red-200' : 'bg-navy-50 border-navy-200'}`}>
             <ClockIcon className={`w-4 h-4 flex-shrink-0 ${expired ? 'text-red-500' : 'text-navy-500'}`} />
             <div>
@@ -393,99 +307,53 @@ export default function RosterPage() {
         </div>
       )}
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Available players panel */}
-          <div className="lg:col-span-1">
-            <div className="card p-4">
-              <h2 className="text-sm font-semibold text-navy-700 mb-3">
-                Jugadores disponibles
-                <span className="ml-2 text-xs font-normal text-navy-400">({availablePlayers.length})</span>
-              </h2>
-              {players.length === 0 ? (
-                <p className="text-xs text-navy-400 text-center py-6">No tienes jugadores activos en tu liga.</p>
-              ) : (
-                <div className="space-y-2">
-                  {availablePlayers.map(p => (
-                    <DraggablePlayer key={p.id} player={p} disabled={!!locked} />
-                  ))}
-                  {availablePlayers.length === 0 && slotPlayerIds.size > 0 && (
-                    <p className="text-xs text-navy-400 text-center py-4">Todos los jugadores han sido asignados.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Slot selectors */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-navy-700">Asignación de nómina</h2>
+        {(Object.keys(SLOT_LABELS) as SlotKey[]).map(slotKey => (
+          <SlotSelect
+            key={slotKey}
+            slotKey={slotKey}
+            value={slots[slotKey]}
+            players={players}
+            usedIds={usedIds}
+            onChange={(id) => handleSlotChange(slotKey, id)}
+            locked={!!locked}
+          />
+        ))}
 
-          {/* Slots */}
-          <div className="lg:col-span-2 space-y-3">
-            <h2 className="text-sm font-semibold text-navy-700">Asignación de nómina</h2>
-            {(Object.keys(SLOT_LABELS) as SlotKey[]).map(slotKey => (
-              <RosterSlot
-                key={slotKey}
-                slotKey={slotKey}
-                player={players.find(p => p.id === slots[slotKey]) || null}
-                onRemove={() => removeFromSlot(slotKey)}
-                locked={!!locked}
-              />
+        {/* Validation errors */}
+        {validationErrors.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
+            {validationErrors.map((err, i) => (
+              <p key={i} className="text-xs text-red-700 flex items-start gap-1.5">
+                <XCircleIcon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                {err}
+              </p>
             ))}
-
-            {/* Validation errors */}
-            {validationErrors.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
-                {validationErrors.map((err, i) => (
-                  <p key={i} className="text-xs text-red-700 flex items-start gap-1.5">
-                    <XCircleIcon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    {err}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {/* Actions */}
-            {!locked && (
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => handleSave(false)}
-                  disabled={saving}
-                  className="btn-secondary flex-1"
-                >
-                  Guardar borrador
-                </button>
-                <button
-                  onClick={() => handleSave(true)}
-                  disabled={saving || validationErrors.length > 0}
-                  className="btn-primary flex-1"
-                >
-                  {saving ? 'Enviando...' : 'Enviar nómina'}
-                </button>
-              </div>
-            )}
           </div>
-        </div>
+        )}
 
-        {/* Drag overlay */}
-        <DragOverlay>
-          {activePlayer && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-white border border-navy-300 rounded-lg shadow-lg opacity-95">
-              <div className="w-7 h-7 rounded-full bg-navy-100 flex items-center justify-center flex-shrink-0">
-                <UserIcon className="w-3.5 h-3.5 text-navy-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-navy-800">{activePlayer.full_name}</p>
-                {activePlayer.ranking !== null && (
-                  <p className="text-xs text-navy-400">Ranking #{activePlayer.ranking}</p>
-                )}
-              </div>
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+        {/* Actions */}
+        {!locked && (
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => handleSave(false)}
+              disabled={saving}
+              className="btn-secondary flex-1"
+            >
+              Guardar borrador
+            </button>
+            <button
+              onClick={() => handleSave(true)}
+              disabled={saving || validationErrors.length > 0}
+              className="btn-primary flex-1"
+            >
+              {saving ? 'Enviando...' : 'Enviar nómina'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
