@@ -10,6 +10,7 @@ import {
   ArrowRightStartOnRectangleIcon,
   Bars3Icon,
   XMarkIcon,
+  QrCodeIcon,
 } from '@heroicons/react/24/outline';
 import { useAuthStore } from '../store/authStore';
 
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/entrenadores', icon: AcademicCapIcon, label: 'Entrenadores', module: 'coaches' },
   { to: '/usuarios', icon: UsersIcon, label: 'Usuarios del Sistema', module: 'users', superAdminOnly: true },
   { to: '/roles', icon: ShieldCheckIcon, label: 'Roles y Permisos', module: 'roles', superAdminOnly: true },
+  { to: '/configuracion/pagos', icon: QrCodeIcon, label: 'Configuración de Pagos', module: 'pagos', superAdminOnly: true },
 ];
 
 interface LayoutProps {

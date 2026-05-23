@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { PlusIcon, PencilSquareIcon, TrashIcon, AcademicCapIcon, FunnelIcon } from '@heroicons/react/24/outline';
+import {
+  PlusIcon, PencilSquareIcon, TrashIcon, AcademicCapIcon, FunnelIcon, UserGroupIcon,
+} from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
-import type { Coach, League } from '../../types/database';
+import type { Coach, League, Player } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -30,15 +32,19 @@ export default function CoachesPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Coach | null>(null);
+  const [statusTarget, setStatusTarget] = useState<Coach | null>(null);
   const [editing, setEditing] = useState<Coach | null>(null);
   const [form, setForm] = useState<CoachForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<CoachForm>>({});
-  const { hasPermission } = useAuthStore();
+  const [coachPlayers, setCoachPlayers] = useState<Player[]>([]);
+  const [loadingPlayers, setLoadingPlayers] = useState(false);
+  const { hasPermission, isSuperAdmin, role } = useAuthStore();
 
   const canCreate = hasPermission('coaches', 'create');
   const canEdit = hasPermission('coaches', 'edit');
   const canDelete = hasPermission('coaches', 'delete');
+  const canToggleStatus = isSuperAdmin() || role?.name === 'Administrador de Liga';
 
   useEffect(() => {
     supabase.from('leagues').select('id, name').order('name').then(({ data }) => {
@@ -69,12 +75,32 @@ export default function CoachesPage() {
   useEffect(() => { fetchCoaches(); }, [fetchCoaches]);
   useEffect(() => { setPage(1); }, [search, filterLeague]);
 
-  const openCreate = () => { setEditing(null); setForm(EMPTY_FORM); setErrors({}); setModalOpen(true); };
+  const loadCoachPlayers = async (coachId: string) => {
+    setLoadingPlayers(true);
+    const { data } = await supabase
+      .from('players')
+      .select('id, full_name, category, league_active, league_id, birth_date, unique_code, coach_id, created_at, league:leagues(id,name,city,representative,created_at)')
+      .eq('coach_id', coachId)
+      .order('full_name');
+    setCoachPlayers((data || []) as Player[]);
+    setLoadingPlayers(false);
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setErrors({});
+    setCoachPlayers([]);
+    setModalOpen(true);
+  };
+
   const openEdit = (coach: Coach) => {
     setEditing(coach);
     setForm({ full_name: coach.full_name, unique_code: coach.unique_code, phone: coach.phone, league_id: coach.league_id || '' });
     setErrors({});
+    setCoachPlayers([]);
     setModalOpen(true);
+    loadCoachPlayers(coach.id);
   };
 
   const validate = () => {
@@ -113,6 +139,21 @@ export default function CoachesPage() {
     const { error } = await supabase.from('coaches').delete().eq('id', deleteTarget.id);
     if (error) toast('error', 'Error al eliminar el entrenador.');
     else { toast('success', 'Entrenador eliminado.'); setDeleteTarget(null); fetchCoaches(); }
+    setSaving(false);
+  };
+
+  const handleToggleStatus = async () => {
+    if (!statusTarget) return;
+    setSaving(true);
+    const { error } = await supabase.from('coaches')
+      .update({ active: !statusTarget.active })
+      .eq('id', statusTarget.id);
+    if (error) toast('error', 'Error al cambiar el estado.');
+    else {
+      toast('success', `Entrenador ${!statusTarget.active ? 'activado' : 'desactivado'}.`);
+      setStatusTarget(null);
+      fetchCoaches();
+    }
     setSaving(false);
   };
 
@@ -155,6 +196,7 @@ export default function CoachesPage() {
                 <th className="table-header">Código</th>
                 <th className="table-header">Teléfono</th>
                 <th className="table-header">Liga</th>
+                <th className="table-header">Estado</th>
                 <th className="table-header">Registrado</th>
                 {(canEdit || canDelete) && <th className="table-header text-right">Acciones</th>}
               </tr>
@@ -163,14 +205,14 @@ export default function CoachesPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    {[1,2,3,4,5,6].map(j => (
+                    {[1,2,3,4,5,6,7].map(j => (
                       <td key={j} className="table-cell"><div className="h-4 bg-slate-100 rounded animate-pulse" /></td>
                     ))}
                   </tr>
                 ))
               ) : coaches.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <AcademicCapIcon className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                     <p className="text-sm text-slate-400">
                       {search || filterLeague ? 'No se encontraron resultados.' : 'No hay entrenadores registrados aún.'}
@@ -184,6 +226,28 @@ export default function CoachesPage() {
                     <td className="table-cell"><span className="font-mono text-xs">{coach.unique_code}</span></td>
                     <td className="table-cell">{coach.phone || <span className="text-slate-300">—</span>}</td>
                     <td className="table-cell">{coach.league?.name || <span className="text-slate-300">—</span>}</td>
+                    <td className="table-cell">
+                      {canToggleStatus ? (
+                        <button
+                          onClick={() => setStatusTarget(coach)}
+                          className={`text-xs font-medium px-2.5 py-0.5 rounded-full border transition-colors ${
+                            coach.active
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                          }`}
+                        >
+                          {coach.active ? 'Activo' : 'Inactivo'}
+                        </button>
+                      ) : (
+                        <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${
+                          coach.active
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                          {coach.active ? 'Activo' : 'Inactivo'}
+                        </span>
+                      )}
+                    </td>
                     <td className="table-cell text-slate-400">{new Date(coach.created_at).toLocaleDateString('es-CO')}</td>
                     {(canEdit || canDelete) && (
                       <td className="table-cell text-right">
@@ -211,7 +275,8 @@ export default function CoachesPage() {
         <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Entrenador' : 'Nuevo Entrenador'}>
+      {/* Create / Edit Modal */}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Entrenador' : 'Nuevo Entrenador'} size="lg">
         <div className="space-y-4">
           <div>
             <label className="label">Nombre Completo</label>
@@ -236,7 +301,43 @@ export default function CoachesPage() {
             </select>
             {errors.league_id && <p className="text-xs text-red-600 mt-1">{errors.league_id}</p>}
           </div>
+
+          {/* Players under this coach */}
+          {editing && (
+            <div className="pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-2 mb-3">
+                <UserGroupIcon className="w-4 h-4 text-slate-400" />
+                <h3 className="text-sm font-semibold text-slate-700">Jugadores a cargo</h3>
+              </div>
+              {loadingPlayers ? (
+                <div className="space-y-2">
+                  {[1,2,3].map(i => <div key={i} className="h-8 bg-slate-100 rounded animate-pulse" />)}
+                </div>
+              ) : coachPlayers.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2">Este entrenador no tiene jugadores asignados.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {coachPlayers.map(p => (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
+                      <span className="text-sm text-slate-800 font-medium">{p.full_name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-navy-50 text-navy-700 border border-navy-100 font-semibold">{p.category}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
+                          p.league_active
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}>
+                          {p.league_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => setModalOpen(false)} className="btn-secondary" disabled={saving}>Cancelar</button>
           <button onClick={handleSave} className="btn-primary" disabled={saving}>
@@ -245,6 +346,18 @@ export default function CoachesPage() {
         </div>
       </Modal>
 
+      {/* Status toggle confirm */}
+      <ConfirmDialog
+        open={!!statusTarget}
+        onClose={() => setStatusTarget(null)}
+        onConfirm={handleToggleStatus}
+        title="Cambiar Estado del Entrenador"
+        message={`¿Confirmas que deseas ${statusTarget?.active ? 'desactivar' : 'activar'} a "${statusTarget?.full_name}"?`}
+        confirmLabel={statusTarget?.active ? 'Desactivar' : 'Activar'}
+        loading={saving}
+      />
+
+      {/* Delete confirm */}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

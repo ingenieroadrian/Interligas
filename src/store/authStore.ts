@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-import type { SystemUser, Role, Permission, PermissionModule, PermissionAction } from '../types/database';
+import type { SystemUser, Role, Permission, PermissionModule, PermissionAction, Coach } from '../types/database';
 
 interface AuthState {
   user: SystemUser | null;
   role: Role | null;
   permissions: Permission[];
+  coachProfile: Coach | null;
   loading: boolean;
   initialized: boolean;
   signIn: (email: string, password: string) => Promise<string | null>;
@@ -13,12 +14,14 @@ interface AuthState {
   loadProfile: () => Promise<void>;
   hasPermission: (module: PermissionModule, action: PermissionAction) => boolean;
   isSuperAdmin: () => boolean;
+  isInactiveCoach: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   role: null,
   permissions: [],
+  coachProfile: null,
   loading: false,
   initialized: false,
 
@@ -33,13 +36,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ user: null, role: null, permissions: [], initialized: false });
+    set({ user: null, role: null, permissions: [], coachProfile: null, initialized: false });
   },
 
   loadProfile: async () => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
-      set({ user: null, role: null, permissions: [], initialized: true });
+      set({ user: null, role: null, permissions: [], coachProfile: null, initialized: true });
       return;
     }
 
@@ -50,7 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       .maybeSingle();
 
     if (!sysUser) {
-      set({ user: null, role: null, permissions: [], initialized: true });
+      set({ user: null, role: null, permissions: [], coachProfile: null, initialized: true });
       return;
     }
 
@@ -68,10 +71,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
 
+    // If user's role is "Entrenador", look up the coach record by unique_code
+    let coachProfile: Coach | null = null;
+    const roleName = (sysUser.role as Role)?.name;
+    if (roleName === 'Entrenador') {
+      const { data: coach } = await supabase
+        .from('coaches')
+        .select('*, league:leagues(id,name,city,representative,created_at)')
+        .eq('unique_code', sysUser.unique_code)
+        .maybeSingle();
+      coachProfile = (coach as Coach) || null;
+    }
+
     set({
       user: sysUser as SystemUser,
       role: sysUser.role as Role || null,
       permissions,
+      coachProfile,
       initialized: true,
     });
   },
@@ -84,5 +100,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   isSuperAdmin: () => {
     return get().role?.name === 'Super Admin';
+  },
+
+  isInactiveCoach: () => {
+    const { role, coachProfile } = get();
+    return role?.name === 'Entrenador' && coachProfile !== null && !coachProfile.active;
   },
 }));

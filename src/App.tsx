@@ -7,15 +7,17 @@ import Layout from './components/Layout';
 import RouteGuard from './components/RouteGuard';
 import LoginPage from './modules/auth/LoginPage';
 import SetupPage from './modules/auth/SetupPage';
+import InactiveLandingPage from './modules/auth/InactiveLandingPage';
 import DashboardPage from './modules/dashboard/DashboardPage';
 import LeaguesPage from './modules/registration/LeaguesPage';
 import PlayersPage from './modules/registration/PlayersPage';
 import CoachesPage from './modules/registration/CoachesPage';
 import UsersPage from './modules/admin/UsersPage';
 import RolesPage from './modules/admin/RolesPage';
+import PaymentConfigPage from './modules/admin/PaymentConfigPage';
 
 function AppRoutes() {
-  const { user, initialized } = useAuthStore();
+  const { user, initialized, isInactiveCoach } = useAuthStore();
 
   if (!initialized) {
     return (
@@ -28,53 +30,92 @@ function AppRoutes() {
     );
   }
 
+  // Inactive coach gate — redirect all protected routes to /acceso-bloqueado
+  const coachBlocked = user && isInactiveCoach();
+
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />
+
+      {/* Inactive coach landing — only accessible to inactive coaches */}
+      <Route
+        path="/acceso-bloqueado"
+        element={
+          !user
+            ? <Navigate to="/login" replace />
+            : !isInactiveCoach()
+              ? <Navigate to="/" replace />
+              : <InactiveLandingPage />
+        }
+      />
+
       <Route path="/" element={
-        <RouteGuard>
-          <Layout>
-            <DashboardPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard>
+              <Layout>
+                <DashboardPage />
+              </Layout>
+            </RouteGuard>
       } />
       <Route path="/ligas" element={
-        <RouteGuard module="leagues" action="view">
-          <Layout>
-            <LeaguesPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard module="leagues" action="view">
+              <Layout>
+                <LeaguesPage />
+              </Layout>
+            </RouteGuard>
       } />
       <Route path="/jugadores" element={
-        <RouteGuard module="players" action="view">
-          <Layout>
-            <PlayersPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard module="players" action="view">
+              <Layout>
+                <PlayersPage />
+              </Layout>
+            </RouteGuard>
       } />
       <Route path="/entrenadores" element={
-        <RouteGuard module="coaches" action="view">
-          <Layout>
-            <CoachesPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard module="coaches" action="view">
+              <Layout>
+                <CoachesPage />
+              </Layout>
+            </RouteGuard>
       } />
       <Route path="/usuarios" element={
-        <RouteGuard superAdminOnly>
-          <Layout>
-            <UsersPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard superAdminOnly>
+              <Layout>
+                <UsersPage />
+              </Layout>
+            </RouteGuard>
       } />
       <Route path="/roles" element={
-        <RouteGuard superAdminOnly>
-          <Layout>
-            <RolesPage />
-          </Layout>
-        </RouteGuard>
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard superAdminOnly>
+              <Layout>
+                <RolesPage />
+              </Layout>
+            </RouteGuard>
       } />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/configuracion/pagos" element={
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard superAdminOnly>
+              <Layout>
+                <PaymentConfigPage />
+              </Layout>
+            </RouteGuard>
+      } />
+      <Route path="*" element={
+        coachBlocked ? <Navigate to="/acceso-bloqueado" replace /> : <Navigate to="/" replace />
+      } />
     </Routes>
   );
 }
@@ -89,7 +130,7 @@ export default function App() {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         loadProfile();
       } else if (event === 'SIGNED_OUT') {
-        useAuthStore.setState({ user: null, role: null, permissions: [], initialized: true });
+        useAuthStore.setState({ user: null, role: null, permissions: [], coachProfile: null, initialized: true });
       }
     });
 

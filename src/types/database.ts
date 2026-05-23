@@ -47,6 +47,7 @@ export interface Coach {
   unique_code: string;
   phone: string;
   league_id: string | null;
+  active: boolean;
   created_at: string;
   league?: League;
 }
@@ -59,8 +60,17 @@ export interface Player {
   league_id: string | null;
   category: PlayerCategory;
   league_active: boolean;
+  coach_id: string | null;
   created_at: string;
   league?: League;
+  coach?: Coach;
+}
+
+export interface PaymentConfig {
+  id: string;
+  qr_image_url: string;
+  updated_at: string;
+  updated_by: string | null;
 }
 
 export interface Database {
@@ -72,7 +82,8 @@ export interface Database {
       system_users: { Row: SystemUser; Insert: Omit<SystemUser, 'id' | 'created_at' | 'role'>; Update: Partial<Omit<SystemUser, 'id' | 'role'>> };
       leagues: { Row: League; Insert: Omit<League, 'id' | 'created_at'>; Update: Partial<Omit<League, 'id'>> };
       coaches: { Row: Coach; Insert: Omit<Coach, 'id' | 'created_at' | 'league'>; Update: Partial<Omit<Coach, 'id' | 'league'>> };
-      players: { Row: Player; Insert: Omit<Player, 'id' | 'created_at' | 'league'>; Update: Partial<Omit<Player, 'id' | 'league'>> };
+      players: { Row: Player; Insert: Omit<Player, 'id' | 'created_at' | 'league' | 'coach'>; Update: Partial<Omit<Player, 'id' | 'league' | 'coach'>> };
+      payment_config: { Row: PaymentConfig; Insert: Omit<PaymentConfig, 'id'>; Update: Partial<Omit<PaymentConfig, 'id'>> };
     };
   };
 }

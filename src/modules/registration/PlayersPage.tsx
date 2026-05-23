@@ -8,7 +8,7 @@ import {
   ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
-import type { Player, League, PlayerCategory } from '../../types/database';
+import type { Player, League, Coach, PlayerCategory } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -27,11 +27,12 @@ interface PlayerForm {
   league_id: string;
   category: PlayerCategory | '';
   league_active: boolean;
+  coach_id: string;
 }
 
 const EMPTY_FORM: PlayerForm = {
   full_name: '', birth_date: '', unique_code: '',
-  league_id: '', category: '', league_active: true,
+  league_id: '', category: '', league_active: true, coach_id: '',
 };
 
 export default function PlayersPage() {
@@ -51,6 +52,7 @@ export default function PlayersPage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof PlayerForm, string>>>({});
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
   const { hasPermission } = useAuthStore();
 
   const canCreate = hasPermission('players', 'create');
@@ -62,6 +64,13 @@ export default function PlayersPage() {
       if (data) setLeagues(data as League[]);
     });
   }, []);
+
+  useEffect(() => {
+    if (!form.league_id) { setCoaches([]); return; }
+    supabase.from('coaches').select('id, full_name, league_id, active, unique_code, phone, created_at')
+      .eq('league_id', form.league_id).order('full_name')
+      .then(({ data }) => { if (data) setCoaches(data as Coach[]); });
+  }, [form.league_id]);
 
   const fetchPlayers = useCallback(async () => {
     setLoading(true);
@@ -104,6 +113,7 @@ export default function PlayersPage() {
       league_id: player.league_id || '',
       category: player.category,
       league_active: player.league_active,
+      coach_id: player.coach_id || '',
     });
     setErrors({});
     setModalOpen(true);
@@ -130,6 +140,7 @@ export default function PlayersPage() {
       league_id: form.league_id || null,
       category: form.category as PlayerCategory,
       league_active: form.league_active,
+      coach_id: form.coach_id || null,
     };
     if (editing) {
       const { error } = await supabase.from('players').update(payload).eq('id', editing.id);
@@ -364,6 +375,20 @@ export default function PlayersPage() {
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             {errors.category && <p className="text-xs text-red-600 mt-1">{errors.category}</p>}
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="label">Entrenador <span className="text-slate-400 font-normal">(opcional)</span></label>
+            <select
+              className="input-field"
+              value={form.coach_id}
+              onChange={e => setForm(f => ({ ...f, coach_id: e.target.value }))}
+              disabled={!form.league_id}
+            >
+              <option value="">Sin entrenador asignado</option>
+              {coaches.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+            </select>
+            {!form.league_id && <p className="text-xs text-slate-400 mt-1">Selecciona una liga para ver los entrenadores disponibles.</p>}
           </div>
 
           <div className="sm:col-span-2">
