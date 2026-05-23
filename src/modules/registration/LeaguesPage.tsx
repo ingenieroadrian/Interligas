@@ -5,6 +5,7 @@ import {
   TrashIcon,
   TrophyIcon,
   ArrowUpTrayIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { League } from '../../types/database';
@@ -15,6 +16,7 @@ import SearchInput from '../../components/SearchInput';
 import Pagination from '../../components/Pagination';
 import { toast } from '../../components/Toast';
 import BulkLoadLeagues from '../../components/BulkLoadLeagues';
+import { generateLeagueEmail } from '../../utils/stringHelpers';
 
 const PAGE_SIZE = 10;
 
@@ -22,9 +24,10 @@ interface LeagueForm {
   name: string;
   city: string;
   representative: string;
+  email: string;
 }
 
-const EMPTY_FORM: LeagueForm = { name: '', city: '', representative: '' };
+const EMPTY_FORM: LeagueForm = { name: '', city: '', representative: '', email: '' };
 
 export default function LeaguesPage() {
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -39,7 +42,7 @@ export default function LeaguesPage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<LeagueForm>>({});
   const [bulkOpen, setBulkOpen] = useState(false);
-  const { hasPermission } = useAuthStore();
+  const { hasPermission, isSuperAdmin } = useAuthStore();
 
   const canCreate = hasPermission('leagues', 'create');
   const canEdit = hasPermission('leagues', 'edit');
@@ -63,8 +66,16 @@ export default function LeaguesPage() {
   }, [page, search]);
 
   useEffect(() => { fetchLeagues(); }, [fetchLeagues]);
-
   useEffect(() => { setPage(1); }, [search]);
+
+  // Auto-generate email when name changes (only for new leagues)
+  const handleNameChange = (name: string) => {
+    setForm(f => ({
+      ...f,
+      name,
+      email: editing ? f.email : generateLeagueEmail(name),
+    }));
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -75,7 +86,12 @@ export default function LeaguesPage() {
 
   const openEdit = (league: League) => {
     setEditing(league);
-    setForm({ name: league.name, city: league.city, representative: league.representative });
+    setForm({
+      name: league.name,
+      city: league.city,
+      representative: league.representative,
+      email: league.email || '',
+    });
     setErrors({});
     setModalOpen(true);
   };
@@ -92,21 +108,19 @@ export default function LeaguesPage() {
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
+    const payload = {
+      name: form.name.trim(),
+      city: form.city.trim(),
+      representative: form.representative.trim(),
+      email: form.email.trim() || null,
+    };
     if (editing) {
-      const { error } = await supabase.from('leagues').update({
-        name: form.name.trim(),
-        city: form.city.trim(),
-        representative: form.representative.trim(),
-      }).eq('id', editing.id);
-      if (error) { toast('error', 'Error al actualizar la liga.'); }
+      const { error } = await supabase.from('leagues').update(payload).eq('id', editing.id);
+      if (error) toast('error', 'Error al actualizar la liga.');
       else { toast('success', 'Liga actualizada correctamente.'); setModalOpen(false); fetchLeagues(); }
     } else {
-      const { error } = await supabase.from('leagues').insert({
-        name: form.name.trim(),
-        city: form.city.trim(),
-        representative: form.representative.trim(),
-      });
-      if (error) { toast('error', 'Error al crear la liga.'); }
+      const { error } = await supabase.from('leagues').insert(payload);
+      if (error) toast('error', 'Error al crear la liga.');
       else { toast('success', 'Liga creada correctamente.'); setModalOpen(false); fetchLeagues(); }
     }
     setSaving(false);
@@ -116,23 +130,15 @@ export default function LeaguesPage() {
     if (!deleteTarget) return;
     setSaving(true);
     const { error } = await supabase.from('leagues').delete().eq('id', deleteTarget.id);
-    if (error) { toast('error', 'Error al eliminar la liga.'); }
+    if (error) toast('error', 'Error al eliminar la liga.');
     else { toast('success', 'Liga eliminada.'); setDeleteTarget(null); fetchLeagues(); }
     setSaving(false);
   };
 
-  const field = (key: keyof LeagueForm, label: string, placeholder: string) => (
-    <div>
-      <label className="label">{label}</label>
-      <input
-        className={`input-field ${errors[key] ? 'border-red-400 focus:ring-red-400' : ''}`}
-        placeholder={placeholder}
-        value={form[key]}
-        onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-      />
-      {errors[key] && <p className="text-xs text-red-600 mt-1">{errors[key]}</p>}
-    </div>
-  );
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast('success', 'Correo copiado al portapapeles.');
+  };
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -156,12 +162,10 @@ export default function LeaguesPage() {
       </div>
 
       <div className="card">
-        {/* Toolbar */}
         <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
           <SearchInput value={search} onChange={setSearch} placeholder="Buscar liga, ciudad..." />
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-100">
@@ -169,6 +173,7 @@ export default function LeaguesPage() {
                 <th className="table-header">Liga</th>
                 <th className="table-header">Ciudad</th>
                 <th className="table-header">Representante</th>
+                <th className="table-header">Correo Institucional</th>
                 <th className="table-header">Registrada</th>
                 {(canEdit || canDelete) && <th className="table-header text-right">Acciones</th>}
               </tr>
@@ -177,7 +182,7 @@ export default function LeaguesPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    {[1, 2, 3, 4, 5].map(j => (
+                    {[1, 2, 3, 4, 5, 6].map(j => (
                       <td key={j} className="table-cell">
                         <div className="h-4 bg-slate-100 rounded animate-pulse w-3/4" />
                       </td>
@@ -186,7 +191,7 @@ export default function LeaguesPage() {
                 ))
               ) : leagues.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
+                  <td colSpan={6} className="text-center py-12">
                     <TrophyIcon className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                     <p className="text-sm text-slate-400">
                       {search ? 'No se encontraron resultados.' : 'No hay ligas registradas aún.'}
@@ -199,6 +204,22 @@ export default function LeaguesPage() {
                     <td className="table-cell font-medium text-slate-900">{league.name}</td>
                     <td className="table-cell">{league.city}</td>
                     <td className="table-cell">{league.representative}</td>
+                    <td className="table-cell">
+                      {league.email ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs text-slate-600">{league.email}</span>
+                          <button
+                            onClick={() => copyToClipboard(league.email!)}
+                            className="p-0.5 text-slate-300 hover:text-navy-600 transition-colors"
+                            title="Copiar correo"
+                          >
+                            <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="table-cell text-slate-400">
                       {new Date(league.created_at).toLocaleDateString('es-CO')}
                     </td>
@@ -243,9 +264,72 @@ export default function LeaguesPage() {
         title={editing ? 'Editar Liga' : 'Nueva Liga'}
       >
         <div className="space-y-4">
-          {field('name', 'Nombre de la Liga', 'Ej. Liga Bogotá Norte')}
-          {field('city', 'Ciudad', 'Ej. Bogotá')}
-          {field('representative', 'Representante', 'Nombre del representante')}
+          {/* Name */}
+          <div>
+            <label className="label">Nombre de la Liga</label>
+            <input
+              className={`input-field ${errors.name ? 'border-red-400 focus:ring-red-400' : ''}`}
+              placeholder="Ej. Liga Bogotá Norte"
+              value={form.name}
+              onChange={e => handleNameChange(e.target.value)}
+            />
+            {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name}</p>}
+          </div>
+
+          {/* Auto-generated email */}
+          <div>
+            <label className="label">
+              Correo Institucional
+              {!editing && <span className="ml-1.5 text-xs font-normal text-slate-400">(generado automáticamente)</span>}
+              {editing && isSuperAdmin() && <span className="ml-1.5 text-xs font-normal text-slate-400">(editable por Super Admin)</span>}
+            </label>
+            <div className="relative">
+              <input
+                className="input-field font-mono text-sm pr-9 bg-slate-50 text-slate-600"
+                value={form.email}
+                onChange={e => editing && isSuperAdmin() ? setForm(f => ({ ...f, email: e.target.value })) : undefined}
+                readOnly={!editing || !isSuperAdmin()}
+                placeholder="Se genera al ingresar el nombre"
+              />
+              {form.email && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(form.email)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-navy-600 transition-colors"
+                  title="Copiar correo"
+                >
+                  <ClipboardDocumentIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {!form.email && form.name && (
+              <p className="text-xs text-slate-400 mt-1">Ingresa el nombre de la liga para generar el correo.</p>
+            )}
+          </div>
+
+          {/* City */}
+          <div>
+            <label className="label">Ciudad</label>
+            <input
+              className={`input-field ${errors.city ? 'border-red-400 focus:ring-red-400' : ''}`}
+              placeholder="Ej. Bogotá"
+              value={form.city}
+              onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+            />
+            {errors.city && <p className="text-xs text-red-600 mt-1">{errors.city}</p>}
+          </div>
+
+          {/* Representative */}
+          <div>
+            <label className="label">Representante</label>
+            <input
+              className={`input-field ${errors.representative ? 'border-red-400 focus:ring-red-400' : ''}`}
+              placeholder="Nombre del representante"
+              value={form.representative}
+              onChange={e => setForm(f => ({ ...f, representative: e.target.value }))}
+            />
+            {errors.representative && <p className="text-xs text-red-600 mt-1">{errors.representative}</p>}
+          </div>
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <button onClick={() => setModalOpen(false)} className="btn-secondary" disabled={saving}>Cancelar</button>

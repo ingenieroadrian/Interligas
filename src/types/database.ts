@@ -38,6 +38,7 @@ export interface League {
   name: string;
   city: string;
   representative: string;
+  email: string | null;
   created_at: string;
 }
 
@@ -48,6 +49,8 @@ export interface Coach {
   phone: string;
   league_id: string | null;
   active: boolean;
+  user_id: string | null;
+  email: string | null;
   created_at: string;
   league?: League;
 }
