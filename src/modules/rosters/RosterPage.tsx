@@ -5,7 +5,6 @@ import {
   ClockIcon,
   CheckCircleIcon,
   XCircleIcon,
-  UserIcon,
   LockClosedIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
@@ -15,19 +14,8 @@ import { toast } from '../../components/Toast';
 
 type SlotKey = 'slot_1' | 'slot_2' | 'slot_doubles_a' | 'slot_doubles_b';
 
-const SLOT_LABELS: Record<SlotKey, string> = {
-  slot_1: 'Partido 1 — Jugador Individual',
-  slot_2: 'Partido 2 — Jugador Individual',
-  slot_doubles_a: 'Dobles — Jugador A',
-  slot_doubles_b: 'Dobles — Jugador B',
-};
-
-const SLOT_HINTS: Record<SlotKey, string> = {
-  slot_1: 'Ranking 2 o 3',
-  slot_2: 'Ranking 2 o 3',
-  slot_doubles_a: 'Combo válido: 1+2, 1+3 ó 2+3',
-  slot_doubles_b: 'Combo válido: 1+2, 1+3 ó 2+3',
-};
+// Dobles combo: store as "idA|idB" sorted
+type DoublesCombo = string;
 
 function useCountdown(deadline: string | null) {
   const [remaining, setRemaining] = useState('');
@@ -51,83 +39,41 @@ function useCountdown(deadline: string | null) {
   return { remaining, expired };
 }
 
-function validateSlots(slots: Record<SlotKey, string | null>, players: Player[]): string[] {
+function validateSlots(
+  slot1: string | null,
+  slot2: string | null,
+  doublesCombo: DoublesCombo | null,
+  players: Player[],
+): string[] {
   const errors: string[] = [];
-  const findPlayer = (id: string | null) => players.find(p => p.id === id) || null;
+  const find = (id: string | null) => players.find(p => p.id === id) ?? null;
 
-  const p1 = findPlayer(slots.slot_1);
-  const p2 = findPlayer(slots.slot_2);
-  const pA = findPlayer(slots.slot_doubles_a);
-  const pB = findPlayer(slots.slot_doubles_b);
+  const p1 = find(slot1);
+  const p2 = find(slot2);
 
   if (p1 && p1.ranking !== null && ![2, 3].includes(p1.ranking))
     errors.push(`Partido 1: el jugador debe tener ranking 2 o 3 (actual: ${p1.ranking})`);
-  if (p2 && p2.ranking !== null && ![2, 3].includes(p2.ranking))
-    errors.push(`Partido 2: el jugador debe tener ranking 2 o 3 (actual: ${p2.ranking})`);
+
   if (p1 && p2 && p1.id === p2.id)
     errors.push('Partido 1 y Partido 2 no pueden tener el mismo jugador');
 
-  if (pA && pB) {
-    if (pA.id === pB.id) {
-      errors.push('Los jugadores de dobles deben ser diferentes');
-    } else if (pA.ranking !== null && pB.ranking !== null) {
+  if (doublesCombo) {
+    const [idA, idB] = doublesCombo.split('|');
+    const pA = find(idA);
+    const pB = find(idB);
+    if (pA && pB && pA.ranking !== null && pB.ranking !== null) {
       const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
-      const validCombos = [[1, 2], [1, 3], [2, 3]];
-      const isValid = validCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y);
-      if (!isValid)
-        errors.push(`Dobles: combinación de rankings inválida (${ranks[0]}+${ranks[1]}). Válidos: 1+2, 1+3, 2+3`);
+      const valid = [[1,2],[1,3],[2,3]];
+      if (!valid.some(([x,y]) => ranks[0]===x && ranks[1]===y))
+        errors.push(`Dobles: combinación inválida (${ranks[0]}+${ranks[1]})`);
     }
   }
 
   return errors;
 }
 
-function SlotSelect({
-  slotKey,
-  value,
-  players,
-  usedIds,
-  onChange,
-  locked,
-}: {
-  slotKey: SlotKey;
-  value: string | null;
-  players: Player[];
-  usedIds: Set<string>;
-  onChange: (id: string | null) => void;
-  locked: boolean;
-}) {
-  const available = players.filter(p => p.id === value || !usedIds.has(p.id));
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 transition-all">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-semibold text-navy-700">{SLOT_LABELS[slotKey]}</p>
-        <p className="text-xs text-navy-400">{SLOT_HINTS[slotKey]}</p>
-      </div>
-      {locked ? (
-        <div className="flex items-center gap-2 px-3 py-2 bg-navy-50 rounded-lg border border-navy-200">
-          <UserIcon className="w-4 h-4 text-navy-600 flex-shrink-0" />
-          <span className="text-sm text-navy-800">
-            {value ? players.find(p => p.id === value)?.full_name || '—' : '—'}
-          </span>
-        </div>
-      ) : (
-        <select
-          className="input-field w-full"
-          value={value || ''}
-          onChange={e => onChange(e.target.value || null)}
-        >
-          <option value="">Seleccionar jugador...</option>
-          {available.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
-            </option>
-          ))}
-        </select>
-      )}
-    </div>
-  );
+function makeComboKey(idA: string, idB: string): string {
+  return [idA, idB].sort().join('|');
 }
 
 export default function RosterPage() {
@@ -138,19 +84,24 @@ export default function RosterPage() {
   const [confrontation, setConfrontation] = useState<Confrontation | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [slots, setSlots] = useState<Record<SlotKey, string | null>>({
-    slot_1: null,
-    slot_2: null,
-    slot_doubles_a: null,
-    slot_doubles_b: null,
-  });
+
+  // Individual slots
+  const [slot1, setSlot1] = useState<string | null>(null);
+  const [slot2, setSlot2] = useState<string | null>(null);
+  // Doubles stored as "idA|idB"
+  const [doublesCombo, setDoublesCombo] = useState<DoublesCombo | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  const { remaining, expired } = useCountdown(confrontation?.deadline || null);
+  const { remaining, expired } = useCountdown(confrontation?.deadline ?? null);
 
-  const locked = roster?.is_submitted || expired || confrontation?.status === 'cerrada';
+  // Locked means submitted or confrontation closed/ended
+  const locked =
+    roster?.is_submitted === true ||
+    confrontation?.status === 'cerrada' ||
+    confrontation?.status === 'finalizada';
 
   const loadData = useCallback(async () => {
     if (!confrontationId || !coachProfile) return;
@@ -166,7 +117,8 @@ export default function RosterPage() {
         .from('players')
         .select('*')
         .eq('coach_id', coachProfile.id)
-        .eq('league_active', true),
+        .eq('league_active', true)
+        .order('ranking', { ascending: true, nullsFirst: false }),
       supabase
         .from('rosters')
         .select('*')
@@ -180,12 +132,11 @@ export default function RosterPage() {
 
     if (rosterData) {
       setRoster(rosterData);
-      setSlots({
-        slot_1: rosterData.slot_1,
-        slot_2: rosterData.slot_2,
-        slot_doubles_a: rosterData.slot_doubles_a,
-        slot_doubles_b: rosterData.slot_doubles_b,
-      });
+      setSlot1(rosterData.slot_1);
+      setSlot2(rosterData.slot_2);
+      if (rosterData.slot_doubles_a && rosterData.slot_doubles_b) {
+        setDoublesCombo(makeComboKey(rosterData.slot_doubles_a, rosterData.slot_doubles_b));
+      }
     }
 
     setLoading(false);
@@ -194,18 +145,63 @@ export default function RosterPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
-    setValidationErrors(validateSlots(slots, players));
-  }, [slots, players]);
+    setValidationErrors(validateSlots(slot1, slot2, doublesCombo, players));
+  }, [slot1, slot2, doublesCombo, players]);
 
-  function handleSlotChange(slotKey: SlotKey, playerId: string | null) {
-    setSlots(prev => ({ ...prev, [slotKey]: playerId }));
+  // Players with ranking 2 or 3 for slot 1
+  const slot1Players = players.filter(p => p.ranking === 2 || p.ranking === 3);
+
+  // All players available for slot 2 (exclude slot1 selection)
+  const slot2Players = players.filter(p => p.id !== slot1);
+
+  // Valid doubles combos: pairs where ranks are 1+2, 1+3, or 2+3
+  // Exclude players already used in slot1 or slot2
+  const usedInSingles = new Set([slot1, slot2].filter(Boolean) as string[]);
+
+  interface DoublesOption { key: string; label: string; idA: string; idB: string }
+  const doublesOptions: DoublesOption[] = [];
+  const validRankCombos = [[1,2],[1,3],[2,3]];
+
+  for (const p1 of players) {
+    for (const p2 of players) {
+      if (p1.id >= p2.id) continue; // avoid duplicates
+      if (p1.ranking === null || p2.ranking === null) continue;
+      const ranks = [p1.ranking, p2.ranking].sort((a,b) => a-b);
+      if (!validRankCombos.some(([x,y]) => ranks[0]===x && ranks[1]===y)) continue;
+      if (usedInSingles.has(p1.id) || usedInSingles.has(p2.id)) continue;
+      doublesOptions.push({
+        key: makeComboKey(p1.id, p2.id),
+        label: `${p1.full_name} (Ranking #${p1.ranking}) + ${p2.full_name} (Ranking #${p2.ranking})`,
+        idA: p1.id,
+        idB: p2.id,
+      });
+    }
   }
 
-  async function handleSave(submit = false) {
+  // All 4 slots filled
+  const allFilled = !!slot1 && !!slot2 && !!doublesCombo;
+
+  function handleDoublesChange(key: string) {
+    setDoublesCombo(key || null);
+  }
+
+  async function handleSave(submit: boolean) {
     if (!confrontationId || !coachProfile) return;
+    if (submit && !allFilled) {
+      toast('Completa los 4 slots antes de enviar la nómina.', 'error');
+      return;
+    }
     if (submit && validationErrors.length > 0) {
       toast('Corrige los errores antes de enviar la nómina.', 'error');
       return;
+    }
+
+    let doublesA: string | null = null;
+    let doublesB: string | null = null;
+    if (doublesCombo) {
+      const [a, b] = doublesCombo.split('|');
+      doublesA = a;
+      doublesB = b;
     }
 
     setSaving(true);
@@ -214,10 +210,10 @@ export default function RosterPage() {
       confrontation_id: confrontationId,
       coach_id: coachProfile.id,
       league_id: coachProfile.league_id!,
-      slot_1: slots.slot_1,
-      slot_2: slots.slot_2,
-      slot_doubles_a: slots.slot_doubles_a,
-      slot_doubles_b: slots.slot_doubles_b,
+      slot_1: slot1,
+      slot_2: slot2,
+      slot_doubles_a: doublesA,
+      slot_doubles_b: doublesB,
       is_submitted: submit,
       submitted_at: submit ? new Date().toISOString() : null,
     };
@@ -226,20 +222,23 @@ export default function RosterPage() {
     if (roster) {
       ({ error } = await supabase.from('rosters').update(payload).eq('id', roster.id));
     } else {
-      const { data, error: insertErr } = await supabase.from('rosters').insert(payload).select().maybeSingle();
+      const { data, error: insertErr } = await supabase
+        .from('rosters')
+        .insert(payload)
+        .select()
+        .maybeSingle();
       error = insertErr;
       if (data) setRoster(data);
     }
 
-    if (error) toast(error.message, 'error');
-    else {
+    if (error) {
+      toast(`Error al guardar: ${error.message}`, 'error');
+    } else {
       toast(submit ? 'Nómina enviada exitosamente.' : 'Borrador guardado.', 'success');
       if (submit) loadData();
     }
     setSaving(false);
   }
-
-  const usedIds = new Set(Object.values(slots).filter(Boolean) as string[]);
 
   if (loading) {
     return (
@@ -259,7 +258,7 @@ export default function RosterPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="space-y-6 max-w-2xl mx-auto">
       {/* Header */}
       <div>
         <button
@@ -276,7 +275,7 @@ export default function RosterPage() {
               {confrontation.home_league?.name} vs {confrontation.away_league?.name} — {confrontation.category}
             </p>
           </div>
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${expired ? 'bg-red-50 border-red-200' : 'bg-navy-50 border-navy-200'}`}>
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border flex-shrink-0 ${expired ? 'bg-red-50 border-red-200' : 'bg-navy-50 border-navy-200'}`}>
             <ClockIcon className={`w-4 h-4 flex-shrink-0 ${expired ? 'text-red-500' : 'text-navy-500'}`} />
             <div>
               <p className="text-xs text-navy-500">Plazo de alineación</p>
@@ -299,28 +298,106 @@ export default function RosterPage() {
         </div>
       )}
 
-      {/* Locked banner */}
+      {/* Locked banner (closed/finished, not submitted) */}
       {!roster?.is_submitted && locked && (
         <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
           <LockClosedIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
-          <p className="text-sm font-medium text-amber-800">El plazo de alineación ha vencido. No se pueden realizar cambios.</p>
+          <p className="text-sm font-medium text-amber-800">Este enfrentamiento está cerrado. No se pueden realizar cambios.</p>
         </div>
       )}
 
-      {/* Slot selectors */}
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-navy-700">Asignación de nómina</h2>
-        {(Object.keys(SLOT_LABELS) as SlotKey[]).map(slotKey => (
-          <SlotSelect
-            key={slotKey}
-            slotKey={slotKey}
-            value={slots[slotKey]}
-            players={players}
-            usedIds={usedIds}
-            onChange={(id) => handleSlotChange(slotKey, id)}
-            locked={!!locked}
-          />
-        ))}
+      {/* No players warning */}
+      {!locked && players.length === 0 && (
+        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <p className="text-sm text-amber-800">No tienes jugadores activos asignados. Contacta al administrador.</p>
+        </div>
+      )}
+
+      {/* Slots */}
+      <div className="card p-5 space-y-5">
+        <h2 className="text-sm font-semibold text-navy-700">Asignación de jugadores</h2>
+
+        {/* Slot 1 — ranking 2 o 3 */}
+        <div>
+          <label className="label">
+            Partido 1 — Jugador Individual
+            <span className="ml-1.5 text-xs font-normal text-navy-400">(Ranking 2 o 3)</span>
+          </label>
+          {locked ? (
+            <ReadonlySlot player={players.find(p => p.id === slot1) ?? null} />
+          ) : (
+            <select
+              className="input-field"
+              value={slot1 ?? ''}
+              onChange={e => setSlot1(e.target.value || null)}
+            >
+              <option value="">Seleccionar jugador...</option>
+              {slot1Players
+                .filter(p => p.id !== slot2 && !isInDoubles(p.id, doublesCombo))
+                .map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name} — Ranking #{p.ranking}
+                  </option>
+                ))}
+            </select>
+          )}
+        </div>
+
+        {/* Slot 2 — sin restricción de ranking */}
+        <div>
+          <label className="label">
+            Partido 2 — Jugador Individual
+            <span className="ml-1.5 text-xs font-normal text-navy-400">(Cualquier ranking)</span>
+          </label>
+          {locked ? (
+            <ReadonlySlot player={players.find(p => p.id === slot2) ?? null} />
+          ) : (
+            <select
+              className="input-field"
+              value={slot2 ?? ''}
+              onChange={e => setSlot2(e.target.value || null)}
+            >
+              <option value="">Seleccionar jugador...</option>
+              {slot2Players
+                .filter(p => !isInDoubles(p.id, doublesCombo))
+                .map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
+                  </option>
+                ))}
+            </select>
+          )}
+        </div>
+
+        {/* Doubles — single combo select */}
+        <div>
+          <label className="label">
+            Dobles — Pareja
+            <span className="ml-1.5 text-xs font-normal text-navy-400">(Combo: 1+2, 1+3 ó 2+3)</span>
+          </label>
+          {locked ? (
+            <ReadonlyDoubles
+              playerA={doublesCombo ? players.find(p => p.id === doublesCombo.split('|')[0]) ?? null : null}
+              playerB={doublesCombo ? players.find(p => p.id === doublesCombo.split('|')[1]) ?? null : null}
+            />
+          ) : (
+            <select
+              className="input-field"
+              value={doublesCombo ?? ''}
+              onChange={e => handleDoublesChange(e.target.value)}
+            >
+              <option value="">Seleccionar pareja de dobles...</option>
+              {doublesOptions.map(opt => (
+                <option key={opt.key} value={opt.key}>{opt.label}</option>
+              ))}
+              {doublesOptions.length === 0 && (
+                <option value="" disabled>
+                  Sin combinaciones válidas disponibles
+                </option>
+              )}
+            </select>
+          )}
+        </div>
 
         {/* Validation errors */}
         {validationErrors.length > 0 && (
@@ -336,17 +413,17 @@ export default function RosterPage() {
 
         {/* Actions */}
         {!locked && (
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 pt-1">
             <button
               onClick={() => handleSave(false)}
               disabled={saving}
               className="btn-secondary flex-1"
             >
-              Guardar borrador
+              {saving ? 'Guardando...' : 'Guardar borrador'}
             </button>
             <button
               onClick={() => handleSave(true)}
-              disabled={saving || validationErrors.length > 0}
+              disabled={saving || !allFilled || validationErrors.length > 0}
               className="btn-primary flex-1"
             >
               {saving ? 'Enviando...' : 'Enviar nómina'}
@@ -354,6 +431,38 @@ export default function RosterPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function isInDoubles(playerId: string, combo: string | null): boolean {
+  if (!combo) return false;
+  return combo.split('|').includes(playerId);
+}
+
+function ReadonlySlot({ player }: { player: Player | null }) {
+  return (
+    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
+      {player
+        ? `${player.full_name}${player.ranking !== null ? ` — Ranking #${player.ranking}` : ''}`
+        : <span className="text-slate-400">Sin asignar</span>}
+    </div>
+  );
+}
+
+function ReadonlyDoubles({ playerA, playerB }: { playerA: Player | null; playerB: Player | null }) {
+  if (!playerA && !playerB) {
+    return (
+      <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-400">
+        Sin asignar
+      </div>
+    );
+  }
+  return (
+    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
+      {playerA ? `${playerA.full_name} (Ranking #${playerA.ranking})` : '—'}
+      {' + '}
+      {playerB ? `${playerB.full_name} (Ranking #${playerB.ranking})` : '—'}
     </div>
   );
 }
