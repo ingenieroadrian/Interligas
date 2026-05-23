@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   PlusIcon,
   PencilSquareIcon,
@@ -7,6 +8,7 @@ import {
   CalendarDaysIcon,
   ClockIcon,
   CheckCircleIcon,
+  ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { Confrontation, League, PlayerCategory, ConfrontationStatus } from '../../types/database';
@@ -79,7 +81,9 @@ export default function ConfrontationsPage() {
   const [errors, setErrors] = useState<Partial<ConfrontationForm>>({});
   const [saving, setSaving] = useState(false);
 
-  const { user, isSuperAdmin, hasPermission } = useAuthStore();
+  const navigate = useNavigate();
+  const { user, role, isSuperAdmin, hasPermission } = useAuthStore();
+  const isCoach = role?.name === 'Entrenador';
   const canCreate = isSuperAdmin() || hasPermission('rosters', 'create');
   const canEdit = isSuperAdmin() || hasPermission('rosters', 'edit');
   const canDelete = isSuperAdmin() || hasPermission('rosters', 'delete');
@@ -274,7 +278,19 @@ export default function ConfrontationsPage() {
                   </td>
                   <td className="table-cell text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {c.status === 'programada' && canEdit && (
+                      {/* Coach: open alignment view when alineacion */}
+                      {isCoach && c.status === 'alineacion' && (
+                        <button
+                          onClick={() => navigate(`/nominas/${c.id}`)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                          title="Alinear nómina"
+                        >
+                          <ClipboardDocumentListIcon className="w-3.5 h-3.5" />
+                          Alinear
+                        </button>
+                      )}
+                      {/* Admin: activate button */}
+                      {!isCoach && c.status === 'programada' && canEdit && (
                         <button
                           onClick={() => handleActivate(c)}
                           className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
@@ -283,7 +299,7 @@ export default function ConfrontationsPage() {
                           <BoltIcon className="w-4 h-4" />
                         </button>
                       )}
-                      {canEdit && c.status === 'programada' && (
+                      {!isCoach && canEdit && c.status === 'programada' && (
                         <button
                           onClick={() => openEdit(c)}
                           className="p-1.5 text-navy-400 hover:bg-navy-50 hover:text-navy-700 rounded-lg transition-colors"
@@ -291,7 +307,7 @@ export default function ConfrontationsPage() {
                           <PencilSquareIcon className="w-4 h-4" />
                         </button>
                       )}
-                      {canDelete && c.status === 'programada' && (
+                      {!isCoach && canDelete && c.status === 'programada' && (
                         <button
                           onClick={() => setDeleteTarget(c)}
                           className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
@@ -299,7 +315,7 @@ export default function ConfrontationsPage() {
                           <TrashIcon className="w-4 h-4" />
                         </button>
                       )}
-                      {c.status !== 'programada' && (
+                      {!isCoach && c.status !== 'programada' && (
                         <span className="flex items-center gap-1 text-xs text-navy-400">
                           <CheckCircleIcon className="w-3.5 h-3.5" />
                           {STATUS_LABELS[c.status]}

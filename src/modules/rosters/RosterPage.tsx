@@ -9,13 +9,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { Confrontation, Roster, Player } from '../../types/database';
-import { useAuthStore } from '../../store/authStore';
 import { toast } from '../../components/Toast';
 
-type SlotKey = 'slot_1' | 'slot_2' | 'slot_doubles_a' | 'slot_doubles_b';
-
-// Dobles combo: store as "idA|idB" sorted
-type DoublesCombo = string;
+type DoublesCombo = string; // "idA|idB" sorted
 
 function useCountdown(deadline: string | null) {
   const [remaining, setRemaining] = useState('');
@@ -39,56 +35,54 @@ function useCountdown(deadline: string | null) {
   return { remaining, expired };
 }
 
-function validateSlots(
-  slot1: string | null,
-  slot2: string | null,
-  doublesCombo: DoublesCombo | null,
-  players: Player[],
-): string[] {
-  const errors: string[] = [];
-  const find = (id: string | null) => players.find(p => p.id === id) ?? null;
-
-  const p1 = find(slot1);
-  const p2 = find(slot2);
-
-  if (p1 && p1.ranking !== null && ![2, 3].includes(p1.ranking))
-    errors.push(`Partido 1: el jugador debe tener ranking 2 o 3 (actual: ${p1.ranking})`);
-
-  if (p1 && p2 && p1.id === p2.id)
-    errors.push('Partido 1 y Partido 2 no pueden tener el mismo jugador');
-
-  if (doublesCombo) {
-    const [idA, idB] = doublesCombo.split('|');
-    const pA = find(idA);
-    const pB = find(idB);
-    if (pA && pB && pA.ranking !== null && pB.ranking !== null) {
-      const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
-      const valid = [[1,2],[1,3],[2,3]];
-      if (!valid.some(([x,y]) => ranks[0]===x && ranks[1]===y))
-        errors.push(`Dobles: combinación inválida (${ranks[0]}+${ranks[1]})`);
-    }
-  }
-
-  return errors;
-}
-
 function makeComboKey(idA: string, idB: string): string {
   return [idA, idB].sort().join('|');
+}
+
+function isInDoubles(playerId: string, combo: DoublesCombo | null): boolean {
+  if (!combo) return false;
+  return combo.split('|').includes(playerId);
+}
+
+function ReadonlySlot({ player }: { player: Player | null }) {
+  return (
+    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
+      {player
+        ? `${player.full_name}${player.ranking !== null ? ` — Ranking #${player.ranking}` : ''}`
+        : <span className="text-slate-400">Sin asignar</span>}
+    </div>
+  );
+}
+
+function ReadonlyDoubles({ playerA, playerB }: { playerA: Player | null; playerB: Player | null }) {
+  if (!playerA && !playerB) {
+    return (
+      <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-400">
+        Sin asignar
+      </div>
+    );
+  }
+  return (
+    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
+      {playerA ? `${playerA.full_name} (Ranking #${playerA.ranking})` : '—'}
+      {' + '}
+      {playerB ? `${playerB.full_name} (Ranking #${playerB.ranking})` : '—'}
+    </div>
+  );
 }
 
 export default function RosterPage() {
   const { id: confrontationId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { coachProfile } = useAuthStore();
 
   const [confrontation, setConfrontation] = useState<Confrontation | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [coachId, setCoachId] = useState<string | null>(null);
+  const [coachLeagueId, setCoachLeagueId] = useState<string | null>(null);
 
-  // Individual slots
   const [slot1, setSlot1] = useState<string | null>(null);
   const [slot2, setSlot2] = useState<string | null>(null);
-  // Doubles stored as "idA|idB"
   const [doublesCombo, setDoublesCombo] = useState<DoublesCombo | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -97,38 +91,60 @@ export default function RosterPage() {
 
   const { remaining, expired } = useCountdown(confrontation?.deadline ?? null);
 
-  // Locked means submitted or confrontation closed/ended
   const locked =
     roster?.is_submitted === true ||
     confrontation?.status === 'cerrada' ||
     confrontation?.status === 'finalizada';
 
   const loadData = useCallback(async () => {
-    if (!confrontationId || !coachProfile) return;
+    if (!confrontationId) return;
     setLoading(true);
 
-    const [{ data: conf }, { data: playersData }, { data: rosterData }] = await Promise.all([
-      supabase
-        .from('confrontations')
-        .select('*, home_league:leagues!confrontations_home_league_id_fkey(id,name,city,representative,email,created_at), away_league:leagues!confrontations_away_league_id_fkey(id,name,city,representative,email,created_at)')
-        .eq('id', confrontationId)
-        .maybeSingle(),
-      supabase
-        .from('players')
-        .select('*')
-        .eq('coach_id', coachProfile.id)
-        .eq('league_active', true)
-        .order('ranking', { ascending: true, nullsFirst: false }),
-      supabase
-        .from('rosters')
-        .select('*')
-        .eq('confrontation_id', confrontationId)
-        .eq('coach_id', coachProfile.id)
-        .maybeSingle(),
-    ]);
+    // 1. Get confrontation
+    const { data: conf } = await supabase
+      .from('confrontations')
+      .select('*, home_league:leagues!confrontations_home_league_id_fkey(id,name,city,representative,email,created_at), away_league:leagues!confrontations_away_league_id_fkey(id,name,city,representative,email,created_at)')
+      .eq('id', confrontationId)
+      .maybeSingle();
 
     setConfrontation(conf);
-    setPlayers(playersData || []);
+
+    // 2. Get coach record by auth.uid()
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) { setLoading(false); return; }
+
+    const { data: coach } = await supabase
+      .from('coaches')
+      .select('id, league_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+
+    if (!coach) { setLoading(false); return; }
+    setCoachId(coach.id);
+    setCoachLeagueId(coach.league_id);
+
+    // 3. Get players: coach_id + league_active + category matches confrontation
+    const category = conf?.category;
+    let playersData: Player[] = [];
+    if (category) {
+      const { data } = await supabase
+        .from('players')
+        .select('*')
+        .eq('coach_id', coach.id)
+        .eq('league_active', true)
+        .eq('category', category)
+        .order('ranking', { ascending: true, nullsFirst: false });
+      playersData = data || [];
+    }
+    setPlayers(playersData);
+
+    // 4. Get existing roster
+    const { data: rosterData } = await supabase
+      .from('rosters')
+      .select('*')
+      .eq('confrontation_id', confrontationId)
+      .eq('coach_id', coach.id)
+      .maybeSingle();
 
     if (rosterData) {
       setRoster(rosterData);
@@ -140,53 +156,58 @@ export default function RosterPage() {
     }
 
     setLoading(false);
-  }, [confrontationId, coachProfile]);
+  }, [confrontationId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Validate slots whenever they change
   useEffect(() => {
-    setValidationErrors(validateSlots(slot1, slot2, doublesCombo, players));
+    const errors: string[] = [];
+    const find = (id: string | null) => players.find(p => p.id === id) ?? null;
+    const p1 = find(slot1);
+    const p2 = find(slot2);
+
+    if (p1 && p1.ranking !== null && ![2, 3].includes(p1.ranking))
+      errors.push(`Partido 1: el jugador debe tener ranking 2 o 3 (actual: ${p1.ranking})`);
+
+    if (p1 && p2 && p1.id === p2.id)
+      errors.push('Partido 1 y Partido 2 no pueden ser el mismo jugador');
+
+    setValidationErrors(errors);
   }, [slot1, slot2, doublesCombo, players]);
 
-  // Players with ranking 2 or 3 for slot 1
+  // Slot 1: ranking 2 or 3 only
   const slot1Players = players.filter(p => p.ranking === 2 || p.ranking === 3);
 
-  // All players available for slot 2 (exclude slot1 selection)
-  const slot2Players = players.filter(p => p.id !== slot1);
+  // Slot 2: all players except slot1 selection and those in doubles
+  const slot2Players = players.filter(p => p.id !== slot1 && !isInDoubles(p.id, doublesCombo));
 
-  // Valid doubles combos: pairs where ranks are 1+2, 1+3, or 2+3
-  // Exclude players already used in slot1 or slot2
+  // Doubles: valid rank combos 1+2, 1+3, 2+3, excluding players used in singles
   const usedInSingles = new Set([slot1, slot2].filter(Boolean) as string[]);
-
-  interface DoublesOption { key: string; label: string; idA: string; idB: string }
-  const doublesOptions: DoublesOption[] = [];
   const validRankCombos = [[1,2],[1,3],[2,3]];
 
-  for (const p1 of players) {
-    for (const p2 of players) {
-      if (p1.id >= p2.id) continue; // avoid duplicates
-      if (p1.ranking === null || p2.ranking === null) continue;
-      const ranks = [p1.ranking, p2.ranking].sort((a,b) => a-b);
-      if (!validRankCombos.some(([x,y]) => ranks[0]===x && ranks[1]===y)) continue;
-      if (usedInSingles.has(p1.id) || usedInSingles.has(p2.id)) continue;
+  interface DoublesOption { key: string; label: string }
+  const doublesOptions: DoublesOption[] = [];
+
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const pA = players[i];
+      const pB = players[j];
+      if (pA.ranking === null || pB.ranking === null) continue;
+      const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
+      if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
+      if (usedInSingles.has(pA.id) || usedInSingles.has(pB.id)) continue;
       doublesOptions.push({
-        key: makeComboKey(p1.id, p2.id),
-        label: `${p1.full_name} (Ranking #${p1.ranking}) + ${p2.full_name} (Ranking #${p2.ranking})`,
-        idA: p1.id,
-        idB: p2.id,
+        key: makeComboKey(pA.id, pB.id),
+        label: `${pA.full_name} (Ranking #${pA.ranking}) + ${pB.full_name} (Ranking #${pB.ranking})`,
       });
     }
   }
 
-  // All 4 slots filled
   const allFilled = !!slot1 && !!slot2 && !!doublesCombo;
 
-  function handleDoublesChange(key: string) {
-    setDoublesCombo(key || null);
-  }
-
   async function handleSave(submit: boolean) {
-    if (!confrontationId || !coachProfile) return;
+    if (!confrontationId || !coachId) return;
     if (submit && !allFilled) {
       toast('Completa los 4 slots antes de enviar la nómina.', 'error');
       return;
@@ -208,8 +229,8 @@ export default function RosterPage() {
 
     const payload = {
       confrontation_id: confrontationId,
-      coach_id: coachProfile.id,
-      league_id: coachProfile.league_id!,
+      coach_id: coachId,
+      league_id: coachLeagueId!,
       slot_1: slot1,
       slot_2: slot2,
       slot_doubles_a: doublesA,
@@ -228,7 +249,7 @@ export default function RosterPage() {
         .select()
         .maybeSingle();
       error = insertErr;
-      if (data) setRoster(data);
+      if (data) setRoster(data as Roster);
     }
 
     if (error) {
@@ -309,7 +330,9 @@ export default function RosterPage() {
       {/* No players warning */}
       {!locked && players.length === 0 && (
         <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-sm text-amber-800">No tienes jugadores activos asignados. Contacta al administrador.</p>
+          <p className="text-sm text-amber-800">
+            No tienes jugadores asignados en esta categoría. Contacta al administrador.
+          </p>
         </div>
       )}
 
@@ -317,7 +340,7 @@ export default function RosterPage() {
       <div className="card p-5 space-y-5">
         <h2 className="text-sm font-semibold text-navy-700">Asignación de jugadores</h2>
 
-        {/* Slot 1 — ranking 2 o 3 */}
+        {/* Partido 1 — ranking 2 o 3 */}
         <div>
           <label className="label">
             Partido 1 — Jugador Individual
@@ -343,7 +366,7 @@ export default function RosterPage() {
           )}
         </div>
 
-        {/* Slot 2 — sin restricción de ranking */}
+        {/* Partido 2 — sin restricción */}
         <div>
           <label className="label">
             Partido 2 — Jugador Individual
@@ -358,18 +381,16 @@ export default function RosterPage() {
               onChange={e => setSlot2(e.target.value || null)}
             >
               <option value="">Seleccionar jugador...</option>
-              {slot2Players
-                .filter(p => !isInDoubles(p.id, doublesCombo))
-                .map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
-                  </option>
-                ))}
+              {slot2Players.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
+                </option>
+              ))}
             </select>
           )}
         </div>
 
-        {/* Doubles — single combo select */}
+        {/* Dobles — combo select */}
         <div>
           <label className="label">
             Dobles — Pareja
@@ -377,23 +398,21 @@ export default function RosterPage() {
           </label>
           {locked ? (
             <ReadonlyDoubles
-              playerA={doublesCombo ? players.find(p => p.id === doublesCombo.split('|')[0]) ?? null : null}
-              playerB={doublesCombo ? players.find(p => p.id === doublesCombo.split('|')[1]) ?? null : null}
+              playerA={doublesCombo ? (players.find(p => p.id === doublesCombo.split('|')[0]) ?? null) : null}
+              playerB={doublesCombo ? (players.find(p => p.id === doublesCombo.split('|')[1]) ?? null) : null}
             />
           ) : (
             <select
               className="input-field"
               value={doublesCombo ?? ''}
-              onChange={e => handleDoublesChange(e.target.value)}
+              onChange={e => setDoublesCombo(e.target.value || null)}
             >
               <option value="">Seleccionar pareja de dobles...</option>
               {doublesOptions.map(opt => (
                 <option key={opt.key} value={opt.key}>{opt.label}</option>
               ))}
               {doublesOptions.length === 0 && (
-                <option value="" disabled>
-                  Sin combinaciones válidas disponibles
-                </option>
+                <option value="" disabled>Sin combinaciones válidas disponibles</option>
               )}
             </select>
           )}
@@ -431,38 +450,6 @@ export default function RosterPage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function isInDoubles(playerId: string, combo: string | null): boolean {
-  if (!combo) return false;
-  return combo.split('|').includes(playerId);
-}
-
-function ReadonlySlot({ player }: { player: Player | null }) {
-  return (
-    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
-      {player
-        ? `${player.full_name}${player.ranking !== null ? ` — Ranking #${player.ranking}` : ''}`
-        : <span className="text-slate-400">Sin asignar</span>}
-    </div>
-  );
-}
-
-function ReadonlyDoubles({ playerA, playerB }: { playerA: Player | null; playerB: Player | null }) {
-  if (!playerA && !playerB) {
-    return (
-      <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-400">
-        Sin asignar
-      </div>
-    );
-  }
-  return (
-    <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-navy-700">
-      {playerA ? `${playerA.full_name} (Ranking #${playerA.ranking})` : '—'}
-      {' + '}
-      {playerB ? `${playerB.full_name} (Ranking #${playerB.ranking})` : '—'}
     </div>
   );
 }
