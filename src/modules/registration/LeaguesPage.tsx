@@ -4,6 +4,7 @@ import {
   PencilSquareIcon,
   TrashIcon,
   TrophyIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { League } from '../../types/database';
@@ -13,6 +14,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import SearchInput from '../../components/SearchInput';
 import Pagination from '../../components/Pagination';
 import { toast } from '../../components/Toast';
+import BulkLoadLeagues from '../../components/BulkLoadLeagues';
 
 const PAGE_SIZE = 10;
 
@@ -36,6 +38,7 @@ export default function LeaguesPage() {
   const [form, setForm] = useState<LeagueForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<LeagueForm>>({});
+  const [bulkOpen, setBulkOpen] = useState(false);
   const { hasPermission } = useAuthStore();
 
   const canCreate = hasPermission('leagues', 'create');
@@ -139,10 +142,16 @@ export default function LeaguesPage() {
           <p className="text-slate-500 text-sm mt-1">{total} liga{total !== 1 ? 's' : ''} registrada{total !== 1 ? 's' : ''}</p>
         </div>
         {canCreate && (
-          <button onClick={openCreate} className="btn-primary">
-            <PlusIcon className="w-4 h-4" />
-            Nueva Liga
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBulkOpen(true)} className="btn-secondary">
+              <ArrowUpTrayIcon className="w-4 h-4" />
+              Carga Masiva
+            </button>
+            <button onClick={openCreate} className="btn-primary">
+              <PlusIcon className="w-4 h-4" />
+              Nueva Liga
+            </button>
+          </div>
         )}
       </div>
 
@@ -245,6 +254,13 @@ export default function LeaguesPage() {
           </button>
         </div>
       </Modal>
+
+      {/* Bulk Load */}
+      <BulkLoadLeagues
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onSuccess={() => { fetchLeagues(); toast('success', 'Ligas cargadas correctamente.'); }}
+      />
 
       {/* Delete Confirm */}
       <ConfirmDialog

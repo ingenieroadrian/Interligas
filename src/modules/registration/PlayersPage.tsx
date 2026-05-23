@@ -5,6 +5,7 @@ import {
   TrashIcon,
   UserGroupIcon,
   FunnelIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { Player, League, PlayerCategory } from '../../types/database';
@@ -14,6 +15,7 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import SearchInput from '../../components/SearchInput';
 import Pagination from '../../components/Pagination';
 import { toast } from '../../components/Toast';
+import BulkLoadPlayers from '../../components/BulkLoadPlayers';
 
 const PAGE_SIZE = 10;
 const CATEGORIES: PlayerCategory[] = ['12F', '12M', '14F', '14M', '16F', '16M', '18F', '18M'];
@@ -48,6 +50,7 @@ export default function PlayersPage() {
   const [form, setForm] = useState<PlayerForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof PlayerForm, string>>>({});
+  const [bulkOpen, setBulkOpen] = useState(false);
   const { hasPermission } = useAuthStore();
 
   const canCreate = hasPermission('players', 'create');
@@ -172,10 +175,16 @@ export default function PlayersPage() {
           <p className="text-slate-500 text-sm mt-1">{total} jugador{total !== 1 ? 'es' : ''} registrado{total !== 1 ? 's' : ''}</p>
         </div>
         {canCreate && (
-          <button onClick={openCreate} className="btn-primary">
-            <PlusIcon className="w-4 h-4" />
-            Nuevo Jugador
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBulkOpen(true)} className="btn-secondary">
+              <ArrowUpTrayIcon className="w-4 h-4" />
+              Carga Masiva
+            </button>
+            <button onClick={openCreate} className="btn-primary">
+              <PlusIcon className="w-4 h-4" />
+              Nuevo Jugador
+            </button>
+          </div>
         )}
       </div>
 
@@ -383,6 +392,14 @@ export default function PlayersPage() {
           </button>
         </div>
       </Modal>
+
+      {/* Bulk Load */}
+      <BulkLoadPlayers
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        onSuccess={() => { fetchPlayers(); toast('success', 'Jugadores cargados correctamente.'); }}
+        leagues={leagues}
+      />
 
       {/* Status toggle confirm */}
       <ConfirmDialog
