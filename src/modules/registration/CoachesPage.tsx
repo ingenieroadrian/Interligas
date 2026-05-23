@@ -4,7 +4,7 @@ import {
   ClipboardDocumentIcon, EyeIcon, EyeSlashIcon, KeyIcon, CheckCircleIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
-import type { Coach, League, Player } from '../../types/database';
+import type { Coach, League, Player, PlayerCategory } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -31,11 +31,14 @@ async function callCoachManager(body: object) {
   return res.json();
 }
 
+const CATEGORIES: PlayerCategory[] = ['12F', '12M', '14F', '14M', '16F', '16M', '18F', '18M'];
+
 interface CoachForm {
   full_name: string;
   unique_code: string;
   phone: string;
   league_id: string;
+  category: PlayerCategory | '';
 }
 
 interface CredentialsResult {
@@ -43,7 +46,7 @@ interface CredentialsResult {
   password: string;
 }
 
-const EMPTY_FORM: CoachForm = { full_name: '', unique_code: '', phone: '', league_id: '' };
+const EMPTY_FORM: CoachForm = { full_name: '', unique_code: '', phone: '', league_id: '', category: '' };
 
 export default function CoachesPage() {
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -157,7 +160,7 @@ export default function CoachesPage() {
 
   const openEdit = (coach: Coach) => {
     setEditing(coach);
-    setForm({ full_name: coach.full_name, unique_code: coach.unique_code, phone: coach.phone, league_id: coach.league_id || '' });
+    setForm({ full_name: coach.full_name, unique_code: coach.unique_code, phone: coach.phone, league_id: coach.league_id || '', category: (coach.category as PlayerCategory) || '' });
     setErrors({});
     setGeneratedEmail('');
     setGeneratedPassword('');
@@ -188,6 +191,7 @@ export default function CoachesPage() {
         unique_code: form.unique_code.trim(),
         phone: form.phone.trim(),
         league_id: form.league_id || null,
+        category: form.category || null,
       };
       const { error } = await supabase.from('coaches').update(payload).eq('id', editing.id);
       if (error) toast('error', error.message.includes('unique') ? 'El código único ya está en uso.' : 'Error al actualizar el entrenador.');
@@ -539,6 +543,18 @@ export default function CoachesPage() {
                 {leagues.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
               {errors.league_id && <p className="text-xs text-red-600 mt-1">{errors.league_id}</p>}
+            </div>
+
+            <div>
+              <label className="label">Categoría que maneja</label>
+              <select
+                className="input-field"
+                value={form.category}
+                onChange={e => setForm(f => ({ ...f, category: e.target.value as PlayerCategory }))}
+              >
+                <option value="">Sin categoría asignada</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
 
             {/* Auto-generated credentials preview (only for new coaches) */}

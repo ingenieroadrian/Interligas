@@ -28,11 +28,12 @@ interface PlayerForm {
   category: PlayerCategory | '';
   league_active: boolean;
   coach_id: string;
+  ranking: string;
 }
 
 const EMPTY_FORM: PlayerForm = {
   full_name: '', birth_date: '', unique_code: '',
-  league_id: '', category: '', league_active: true, coach_id: '',
+  league_id: '', category: '', league_active: true, coach_id: '', ranking: '',
 };
 
 export default function PlayersPage() {
@@ -114,6 +115,7 @@ export default function PlayersPage() {
       category: player.category,
       league_active: player.league_active,
       coach_id: player.coach_id || '',
+      ranking: player.ranking != null ? String(player.ranking) : '',
     });
     setErrors({});
     setModalOpen(true);
@@ -141,6 +143,7 @@ export default function PlayersPage() {
       category: form.category as PlayerCategory,
       league_active: form.league_active,
       coach_id: form.coach_id || null,
+      ranking: form.ranking ? parseInt(form.ranking, 10) : null,
     };
     if (editing) {
       const { error } = await supabase.from('players').update(payload).eq('id', editing.id);
@@ -231,7 +234,7 @@ export default function PlayersPage() {
               <tr>
                 <th className="table-header">Jugador</th>
                 <th className="table-header">Código</th>
-                <th className="table-header">Fecha Nac.</th>
+                <th className="table-header">Ranking</th>
                 <th className="table-header">Liga</th>
                 <th className="table-header">Categoría</th>
                 <th className="table-header">Estado</th>
@@ -262,8 +265,13 @@ export default function PlayersPage() {
                 players.map(player => (
                   <tr key={player.id} className="hover:bg-slate-50 transition-colors">
                     <td className="table-cell font-medium text-slate-900">{player.full_name}</td>
-                    <td className="table-cell font-mono text-xs bg-slate-50 rounded">{player.unique_code}</td>
-                    <td className="table-cell">{new Date(player.birth_date + 'T12:00:00').toLocaleDateString('es-CO')}</td>
+                    <td className="table-cell font-mono text-xs">{player.unique_code}</td>
+                    <td className="table-cell">
+                      {player.ranking != null
+                        ? <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-navy-50 border border-navy-100 text-navy-700 text-xs font-bold">#{player.ranking}</span>
+                        : <span className="text-slate-300">—</span>
+                      }
+                    </td>
                     <td className="table-cell">{player.league?.name || <span className="text-slate-300">—</span>}</td>
                     <td className="table-cell">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-navy-50 text-navy-700 border border-navy-100">
@@ -377,7 +385,7 @@ export default function PlayersPage() {
             {errors.category && <p className="text-xs text-red-600 mt-1">{errors.category}</p>}
           </div>
 
-          <div className="sm:col-span-2">
+          <div>
             <label className="label">Entrenador <span className="text-slate-400 font-normal">(opcional)</span></label>
             <select
               className="input-field"
@@ -386,9 +394,22 @@ export default function PlayersPage() {
               disabled={!form.league_id}
             >
               <option value="">Sin entrenador asignado</option>
-              {coaches.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
+              {coaches.map(c => <option key={c.id} value={c.id}>{c.full_name}{c.category ? ` (${c.category})` : ''}</option>)}
             </select>
             {!form.league_id && <p className="text-xs text-slate-400 mt-1">Selecciona una liga para ver los entrenadores disponibles.</p>}
+          </div>
+
+          <div>
+            <label className="label">Ranking <span className="text-slate-400 font-normal">(opcional)</span></label>
+            <input
+              type="number"
+              min="1"
+              className="input-field"
+              placeholder="Ej. 1"
+              value={form.ranking}
+              onChange={e => setForm(f => ({ ...f, ranking: e.target.value }))}
+            />
+            <p className="text-xs text-slate-400 mt-1">Posición dentro de su categoría y liga.</p>
           </div>
 
           <div className="sm:col-span-2">

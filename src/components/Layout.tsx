@@ -11,6 +11,8 @@ import {
   Bars3Icon,
   XMarkIcon,
   QrCodeIcon,
+  ClipboardDocumentListIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 import { useAuthStore } from '../store/authStore';
 
@@ -19,6 +21,8 @@ const navItems = [
   { to: '/ligas', icon: TrophyIcon, label: 'Ligas', module: 'leagues' },
   { to: '/jugadores', icon: UserGroupIcon, label: 'Jugadores', module: 'players' },
   { to: '/entrenadores', icon: AcademicCapIcon, label: 'Entrenadores', module: 'coaches' },
+  { to: '/nominas', icon: ClipboardDocumentListIcon, label: 'Nóminas', module: 'rosters' },
+  { to: '/resultados', icon: ChartBarIcon, label: 'Resultados', module: 'results' },
   { to: '/usuarios', icon: UsersIcon, label: 'Usuarios del Sistema', module: 'users', superAdminOnly: true },
   { to: '/roles', icon: ShieldCheckIcon, label: 'Roles y Permisos', module: 'roles', superAdminOnly: true },
   { to: '/configuracion/pagos', icon: QrCodeIcon, label: 'Configuración de Pagos', module: 'pagos', superAdminOnly: true },

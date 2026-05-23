@@ -42,6 +42,9 @@ export interface League {
   created_at: string;
 }
 
+export type ConfrontationStatus = 'programada' | 'alineacion' | 'cerrada' | 'en_curso' | 'finalizada';
+export type RosterSlot = 'partido_1' | 'partido_2' | 'dobles';
+
 export interface Coach {
   id: string;
   full_name: string;
@@ -51,6 +54,7 @@ export interface Coach {
   active: boolean;
   user_id: string | null;
   email: string | null;
+  category: PlayerCategory | null;
   created_at: string;
   league?: League;
 }
@@ -64,6 +68,7 @@ export interface Player {
   category: PlayerCategory;
   league_active: boolean;
   coach_id: string | null;
+  ranking: number | null;
   created_at: string;
   league?: League;
   coach?: Coach;
@@ -74,6 +79,58 @@ export interface PaymentConfig {
   qr_image_url: string;
   updated_at: string;
   updated_by: string | null;
+}
+
+export interface Confrontation {
+  id: string;
+  category: PlayerCategory;
+  home_league_id: string;
+  away_league_id: string;
+  match_date: string;
+  match_time: string;
+  deadline: string;
+  status: ConfrontationStatus;
+  created_by: string | null;
+  created_at: string;
+  home_league?: League;
+  away_league?: League;
+}
+
+export interface Roster {
+  id: string;
+  confrontation_id: string;
+  coach_id: string;
+  league_id: string;
+  slot_1: string | null;
+  slot_2: string | null;
+  slot_doubles_a: string | null;
+  slot_doubles_b: string | null;
+  submitted_at: string | null;
+  is_submitted: boolean;
+  coach?: Coach;
+  league?: League;
+  player_slot_1?: Player;
+  player_slot_2?: Player;
+  player_doubles_a?: Player;
+  player_doubles_b?: Player;
+}
+
+export interface MatchAssignment {
+  id: string;
+  roster_id: string;
+  slot: RosterSlot;
+  court: string | null;
+  scheduled_time: string | null;
+  assigned_by: string | null;
+}
+
+export interface StatusLog {
+  id: string;
+  confrontation_id: string;
+  old_status: ConfrontationStatus;
+  new_status: ConfrontationStatus;
+  changed_at: string;
+  changed_by: string;
 }
 
 export interface Database {
