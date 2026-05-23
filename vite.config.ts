@@ -6,5 +6,6 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['@dnd-kit/core', '@dnd-kit/utilities', '@dnd-kit/sortable'],
   },
 });
