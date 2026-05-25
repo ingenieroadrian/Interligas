@@ -109,17 +109,29 @@ export default function RosterPage() {
 
     setConfrontation(conf);
 
-    // 2. Get coach record by auth.uid()
+    // 2. Get coach record: coaches.user_id -> system_users.id where system_users.auth_id = auth.uid()
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) { setLoading(false); return; }
+
+    // system_users.id (not auth_id) is the FK stored in coaches.user_id
+    const { data: sysUser } = await supabase
+      .from('system_users')
+      .select('id')
+      .eq('auth_id', authUser.id)
+      .maybeSingle();
+
+    if (!sysUser) { setLoading(false); return; }
 
     const { data: coach } = await supabase
       .from('coaches')
       .select('id, league_id')
-      .eq('user_id', authUser.id)
+      .eq('user_id', sysUser.id)
       .maybeSingle();
 
-    if (!coach) { setLoading(false); return; }
+    if (!coach) {
+      setLoading(false);
+      return; // no coach linked — UI shows error below
+    }
     setCoachId(coach.id);
     setCoachLeagueId(coach.league_id);
 
