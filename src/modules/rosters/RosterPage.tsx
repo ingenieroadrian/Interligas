@@ -94,7 +94,8 @@ export default function RosterPage() {
   const locked =
     roster?.is_submitted === true ||
     confrontation?.status === 'cerrada' ||
-    confrontation?.status === 'finalizada';
+    confrontation?.status === 'finalizada' ||
+    expired;
 
   const loadData = useCallback(async () => {
     if (!confrontationId) return;
