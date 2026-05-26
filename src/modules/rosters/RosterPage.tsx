@@ -192,10 +192,9 @@ export default function RosterPage() {
   const slot1Players = players.filter(p => p.ranking === 2 || p.ranking === 3);
 
   // Slot 2: all players except slot1 selection and those in doubles
-  const slot2Players = players.filter(p => p.id !== slot1 && !isInDoubles(p.id, doublesCombo));
+  const slot2Players = players.filter(p => p.id !== slot1);
 
-  // Doubles: valid rank combos 1+2, 1+3, 2+3, excluding players used in singles
-  const usedInSingles = new Set([slot1, slot2].filter(Boolean) as string[]);
+  // Doubles: valid rank combos 1+2, 1+3, 2+3 — players can also appear in singles
   const validRankCombos = [[1,2],[1,3],[2,3]];
 
   interface DoublesOption { key: string; label: string }
@@ -208,7 +207,6 @@ export default function RosterPage() {
       if (pA.ranking === null || pB.ranking === null) continue;
       const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
       if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
-      if (usedInSingles.has(pA.id) || usedInSingles.has(pB.id)) continue;
       doublesOptions.push({
         key: makeComboKey(pA.id, pB.id),
         label: `${pA.full_name} (Ranking #${pA.ranking}) + ${pB.full_name} (Ranking #${pB.ranking})`,
