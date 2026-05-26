@@ -316,10 +316,14 @@ export default function ConfrontationsPage() {
                         </button>
                       )}
                       {!isCoach && c.status !== 'programada' && (
-                        <span className="flex items-center gap-1 text-xs text-navy-400">
-                          <CheckCircleIcon className="w-3.5 h-3.5" />
-                          {STATUS_LABELS[c.status]}
-                        </span>
+                        <button
+                          onClick={() => navigate(`/nominas/${c.id}`)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-navy-700 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors"
+                          title="Ver / editar nóminas"
+                        >
+                          <ClipboardDocumentListIcon className="w-3.5 h-3.5" />
+                          Nóminas
+                        </button>
                       )}
                     </div>
                   </td>
