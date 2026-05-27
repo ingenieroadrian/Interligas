@@ -67,7 +67,7 @@ export default function PublicResultsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
-  const activeSuspension = useActiveSuspension();
+  const [activeSuspension] = useActiveSuspension();
 
   const loadData = useCallback(async () => {
     // Fetch confrontations that might have active matches

@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const [resumeTime, setResumeTime] = useState('');
   const [suspending, setSuspending] = useState(false);
   const { user, isSuperAdmin } = useAuthStore();
-  const activeSuspension = useActiveSuspension();
+  const [activeSuspension, reloadSuspension] = useActiveSuspension();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -162,6 +162,7 @@ export default function DashboardPage() {
           canClose={isSuperAdmin()}
           onClose={async () => {
             await cancelSuspension(activeSuspension.id);
+            reloadSuspension();
           }}
         />
       )}

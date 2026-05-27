@@ -82,9 +82,10 @@ export function SuspensionOverlay({ canClose, onClose, suspension }: Props) {
   );
 }
 
-// Hook — returns active suspension for today or null
-export function useActiveSuspension() {
+// Hook — returns active suspension for today or null, plus a reload function
+export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => void] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -104,12 +105,13 @@ export function useActiveSuspension() {
     }
     load();
 
-    // Re-check every 15 seconds
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
-  }, []);
+  }, [tick]);
 
-  return suspension;
+  const reload = () => setTick(t => t + 1);
+
+  return [suspension, reload];
 }
 
 export async function cancelSuspension(id: string) {
