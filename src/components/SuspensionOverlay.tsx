@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CloudIcon, XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
 import { toast } from './Toast';
@@ -42,31 +42,37 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   const [remaining, setRemaining] = useState(() => calcRemaining(suspension.resume_time));
   const [closing, setClosing] = useState(false);
   const isResumeReached = remaining <= 0;
+  const closedRef = useRef(false);
 
   useEffect(() => {
     const id = setInterval(() => {
-      setRemaining(calcRemaining(suspension.resume_time));
+      const r = calcRemaining(suspension.resume_time);
+      setRemaining(r);
+
+      // Cuando llega a 0 por primera vez levanta automáticamente
+      if (r <= 0 && !closedRef.current) {
+        closedRef.current = true;
+        supabase
+          .from('match_suspensions')
+          .update({ cancelled_at: new Date().toISOString() })
+          .eq('id', suspension.id)
+          .then(() => onClose());
+      }
     }, 1000);
     return () => clearInterval(id);
-  }, [suspension.resume_time]);
-
-  useEffect(() => {
-    if (remaining > 0) return;
-    onClose();
-    supabase
-      .from('match_suspensions')
-      .update({ cancelled_at: new Date().toISOString() })
-      .eq('id', suspension.id);
-  }, [remaining]); 
+  }, [suspension.resume_time, suspension.id, onClose]);
 
   async function handleClose() {
-    setClosing(true)
+    if (closedRef.current) return;
+    closedRef.current = true;
+    setClosing(true);
     const { error } = await supabase
       .from('match_suspensions')
       .update({ cancelled_at: new Date().toISOString() })
       .eq('id', suspension.id);
     if (error) {
       toast('error', 'No se pudo levantar la suspensión. Intenta nuevamente.');
+      closedRef.current = false;
       setClosing(false);
       return;
     }
@@ -114,7 +120,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
               <CheckCircleIcon className="w-6 h-6" />
               <p className="text-xl font-bold uppercase tracking-widest">Hora de reinicio alcanzada</p>
             </div>
-            <p className="text-slate-400 text-sm uppercase tracking-widest">Cerrando en unos segundos...</p>
+            <p className="text-slate-400 text-sm uppercase tracking-widest">Levantando suspensión...</p>
           </>
         ) : (
           <>
