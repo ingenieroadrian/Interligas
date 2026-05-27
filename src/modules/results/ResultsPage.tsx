@@ -168,7 +168,12 @@ function CourtGridView({ confrontations, courts }: CourtGridProps) {
 
   const allCourtNames = [
     ...courts.map(c => c.name),
-    ...Array.from(extraCourts),
+    ...Array.from(extraCourts).sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, ''), 10);
+      const numB = parseInt(b.replace(/\D/g, ''), 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    }),
   ];
 
   const matchStatusColors: Record<string, string> = {
@@ -419,8 +424,14 @@ export default function ResultsPage() {
   useEffect(() => { loadData(); loadStandings(); }, [loadData, loadStandings]);
 
   useEffect(() => {
-    supabase.from('courts').select('*').eq('active', true).order('name').then(({ data }) => {
-      setCourts(data || []);
+    supabase.from('courts').select('*').eq('active', true).then(({ data }) => {
+      const sorted = (data || []).sort((a, b) => {
+        const numA = parseInt(a.name.replace(/\D/g, ''), 10);
+        const numB = parseInt(b.name.replace(/\D/g, ''), 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.name.localeCompare(b.name);
+      });
+      setCourts(sorted);
     });
   }, []);
 
@@ -510,10 +521,39 @@ export default function ResultsPage() {
       toast('success', 'Resultado guardado.');
       setEditTarget(null);
       await loadData();
-      // Check and update series standings after save
+      // Auto-finalize confrontation when all 3 matches have a winner
+      const { data: allResults } = await supabase
+        .from('match_results')
+        .select('winner, match_status')
+        .eq('confrontation_id', confrontationId);
+      if (allResults && allResults.length === 3 && allResults.every(r => r.winner)) {
+        await supabase.from('confrontations').update({ status: 'finalizada' }).eq('id', confrontationId);
+        // Ensure all match_results are marked finished
+        await supabase
+          .from('match_results')
+          .update({ match_status: 'finished', finished_at: new Date().toISOString() })
+          .eq('confrontation_id', confrontationId)
+          .neq('match_status', 'finished');
+        await loadData();
+      }
       await updateSeriesIfComplete(confrontationId);
     }
     setSaving(false);
+  }
+
+  async function handleFinalizeConfrontation(confrontationId: string) {
+    setFinishing(confrontationId);
+    // Mark all finished matches and update confrontation status
+    await supabase
+      .from('match_results')
+      .update({ match_status: 'finished', finished_at: new Date().toISOString() })
+      .eq('confrontation_id', confrontationId)
+      .neq('match_status', 'finished');
+    await supabase.from('confrontations').update({ status: 'finalizada' }).eq('id', confrontationId);
+    toast('success', 'Confrontación finalizada.');
+    setFinishing(null);
+    await loadData();
+    await updateSeriesIfComplete(confrontationId);
   }
 
   async function updateSeriesIfComplete(confrontationId: string) {
@@ -527,7 +567,8 @@ export default function ResultsPage() {
       .eq('confrontation_id', confrontationId);
 
     if (!allResults || allResults.length < 3) return;
-    if (!allResults.every(r => r.match_status === 'finished')) return;
+    // Allow finalizing when all have a winner even if not all match_status=finished
+    if (!allResults.every(r => r.winner)) return;
 
     let homeWins = 0, awayWins = 0;
     for (const r of allResults) {
@@ -999,13 +1040,23 @@ export default function ResultsPage() {
                       />
                     ))}
                     {canEdit && (
-                      <div className="flex justify-end pt-1">
+                      <div className="flex items-center justify-between pt-1">
                         <button
                           onClick={() => navigate(`/nominas/${conf.id}`)}
                           className="text-xs text-navy-400 hover:text-navy-600 underline underline-offset-2 transition-colors"
                         >
                           Ver nóminas completas
                         </button>
+                        {conf.status === 'en_curso' && allResultsDone && (
+                          <button
+                            onClick={() => handleFinalizeConfrontation(conf.id)}
+                            disabled={finishing === conf.id}
+                            className="flex items-center gap-1.5 text-xs font-medium text-white bg-navy-700 hover:bg-navy-800 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            <CheckCircleIcon className="w-3.5 h-3.5" />
+                            {finishing === conf.id ? 'Finalizando...' : 'Finalizar confrontación'}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
