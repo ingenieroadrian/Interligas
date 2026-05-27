@@ -7,6 +7,7 @@ interface AuthState {
   role: Role | null;
   permissions: Permission[];
   coachProfile: Coach | null;
+  hasInactivePlayers: boolean;
   loading: boolean;
   initialized: boolean;
   signIn: (email: string, password: string) => Promise<string | null>;
@@ -22,6 +23,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   role: null,
   permissions: [],
   coachProfile: null,
+  hasInactivePlayers: false,
   loading: false,
   initialized: false,
 
@@ -36,7 +38,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ user: null, role: null, permissions: [], coachProfile: null, initialized: true });
+    set({ user: null, role: null, permissions: [], coachProfile: null, hasInactivePlayers: false, initialized: true });
   },
 
   loadProfile: async () => {
@@ -73,6 +75,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // If user's role is "Entrenador", look up the coach record by unique_code
     let coachProfile: Coach | null = null;
+    let hasInactivePlayers = false;
     const roleName = (sysUser.role as Role)?.name;
     if (roleName === 'Entrenador') {
       const { data: coach } = await supabase
@@ -81,6 +84,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('unique_code', sysUser.unique_code)
         .maybeSingle();
       coachProfile = (coach as Coach) || null;
+
+      if (coachProfile?.id) {
+        const { count } = await supabase
+          .from('players')
+          .select('id', { count: 'exact', head: true })
+          .eq('coach_id', coachProfile.id)
+          .eq('league_active', false);
+        hasInactivePlayers = (count ?? 0) > 0;
+      }
     }
 
     set({
@@ -88,6 +100,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       role: sysUser.role as Role || null,
       permissions,
       coachProfile,
+      hasInactivePlayers,
       initialized: true,
     });
   },
@@ -103,7 +116,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   isInactiveCoach: () => {
-    const { role, coachProfile } = get();
-    return role?.name === 'Entrenador' && (coachProfile === null || !coachProfile.active);
+    const { role, coachProfile, hasInactivePlayers } = get();
+    if (role?.name !== 'Entrenador') return false;
+    return coachProfile === null || !coachProfile.active || hasInactivePlayers;
   },
 }));

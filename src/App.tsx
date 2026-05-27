@@ -22,7 +22,7 @@ import CanchasPage from './modules/admin/CanchasPage';
 import PublicResultsPage from './modules/results/PublicResultsPage';
 
 function AppRoutes() {
-  const { user, initialized, isInactiveCoach } = useAuthStore();
+  const { user, initialized, coachProfile, hasInactivePlayers, role } = useAuthStore();
 
   if (!initialized) {
     return (
@@ -35,8 +35,12 @@ function AppRoutes() {
     );
   }
 
-  // Inactive coach gate — redirect all protected routes to /acceso-bloqueado
-  const coachBlocked = user && isInactiveCoach();
+  // Hard block: coach profile missing or coach.active === false → block all routes
+  const isCoachRole = role?.name === 'Entrenador';
+  const hardBlocked = user && isCoachRole && (coachProfile === null || !coachProfile.active);
+  // Soft warning: coach is active but has inactive players → redirect once to landing, but allow /acceso-bloqueado through
+  const softWarning = user && isCoachRole && coachProfile?.active && hasInactivePlayers;
+  const coachBlocked = hardBlocked || softWarning;
 
   return (
     <Routes>
@@ -44,13 +48,13 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />
 
-      {/* Inactive coach landing — only accessible to inactive coaches */}
+      {/* Coach landing — accessible to hard-blocked or soft-warned coaches */}
       <Route
         path="/acceso-bloqueado"
         element={
           !user
             ? <Navigate to="/login" replace />
-            : !isInactiveCoach()
+            : !coachBlocked
               ? <Navigate to="/" replace />
               : <InactiveLandingPage />
         }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { TrophyIcon, QrCodeIcon, UserGroupIcon, ArrowRightOnRectangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { TrophyIcon, QrCodeIcon, UserGroupIcon, ArrowRightOnRectangleIcon, XMarkIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import type { Player, PaymentConfig } from '../../types/database';
@@ -10,6 +11,9 @@ export default function InactiveLandingPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [qrModalPlayer, setQrModalPlayer] = useState<Player | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const navigate = useNavigate();
+
+  const coachInactive = !coachProfile?.active;
 
   useEffect(() => {
     supabase.from('payment_config').select('qr_image_url').maybeSingle().then(({ data }) => {
@@ -56,51 +60,66 @@ export default function InactiveLandingPage() {
         </button>
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col items-center justify-start px-4 py-12 max-w-2xl mx-auto w-full">
+      <main className="flex-1 flex flex-col items-center justify-start px-4 py-12 max-w-2xl mx-auto w-full gap-6">
 
-        {/* Status notice */}
-        <div className="w-full bg-navy-900 border border-navy-700 rounded-2xl p-8 text-center mb-8">
-          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <TrophyIcon className="w-8 h-8 text-amber-400" />
-          </div>
-          <h1 className="text-white text-2xl font-bold mb-2">Tu perfil aún no está activo</h1>
-          <p className="text-navy-300 text-sm leading-relaxed">
-            Para activar tu cuenta realiza el pago correspondiente y luego dirígete a la oficina del árbitro para completar el proceso.
-          </p>
-        </div>
-
-        {/* QR Payment section */}
-        <div className="w-full bg-navy-900 border border-navy-700 rounded-2xl p-6 mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <QrCodeIcon className="w-5 h-5 text-navy-300" />
-            <h2 className="text-white font-semibold">Pago por consignación</h2>
-          </div>
-          <div className="flex flex-col items-center gap-4">
-            {qrUrl ? (
-              <div className="bg-white p-3 rounded-xl shadow-lg">
-                <img src={qrUrl} alt="Código QR de consignación" className="w-48 h-48 object-contain" />
+        {/* ── CASE: coach inactive ──────────────────────────────── */}
+        {coachInactive && (
+          <>
+            <div className="w-full bg-navy-900 border border-navy-700 rounded-2xl p-8 text-center">
+              <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <TrophyIcon className="w-8 h-8 text-amber-400" />
               </div>
-            ) : (
-              <div className="w-48 h-48 bg-navy-800 border border-navy-700 rounded-xl flex items-center justify-center">
-                <QrCodeIcon className="w-16 h-16 text-navy-600" />
-              </div>
-            )}
-            <div className="text-center">
-              <p className="text-white text-sm font-medium">Escanea este código para realizar tu consignación</p>
-              <p className="text-navy-400 text-xs mt-2 leading-relaxed">
-                Una vez realizado el pago, dirígete a la oficina del árbitro para que activen tu perfil.
+              <h1 className="text-white text-2xl font-bold mb-2">Tu perfil aún no está activo</h1>
+              <p className="text-navy-300 text-sm leading-relaxed">
+                Para activar tu cuenta realiza el pago correspondiente y luego dirígete a la oficina del árbitro para completar el proceso.
               </p>
             </div>
-          </div>
-        </div>
 
-        {/* Inactive players section */}
+            <div className="w-full bg-navy-900 border border-navy-700 rounded-2xl p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <QrCodeIcon className="w-5 h-5 text-navy-300" />
+                <h2 className="text-white font-semibold">Pago por consignación</h2>
+              </div>
+              <div className="flex flex-col items-center gap-4">
+                {qrUrl ? (
+                  <div className="bg-white p-3 rounded-xl shadow-lg">
+                    <img src={qrUrl} alt="Código QR de consignación" className="w-48 h-48 object-contain" />
+                  </div>
+                ) : (
+                  <div className="w-48 h-48 bg-navy-800 border border-navy-700 rounded-xl flex items-center justify-center">
+                    <QrCodeIcon className="w-16 h-16 text-navy-600" />
+                  </div>
+                )}
+                <div className="text-center">
+                  <p className="text-white text-sm font-medium">Escanea este código para realizar tu consignación</p>
+                  <p className="text-navy-400 text-xs mt-2 leading-relaxed">
+                    Una vez realizado el pago, dirígete a la oficina del árbitro para que activen tu perfil.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── CASE: coach active but has inactive players ───────── */}
+        {!coachInactive && players.length > 0 && (
+          <div className="w-full bg-navy-900 border border-amber-600/30 rounded-2xl p-8 text-center">
+            <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-5">
+              <UserGroupIcon className="w-8 h-8 text-amber-400" />
+            </div>
+            <h1 className="text-white text-2xl font-bold mb-2">Aviso: Jugadores con membresía inactiva</h1>
+            <p className="text-navy-300 text-sm leading-relaxed">
+              Tienes jugadores a tu cargo cuya membresía aún no ha sido activada para la liga. Puedes continuar al sistema, pero estos jugadores no podrán ser alineados hasta que regularicen su pago.
+            </p>
+          </div>
+        )}
+
+        {/* ── Inactive players list (shown for both cases) ─────── */}
         {players.length > 0 && (
           <div className="w-full bg-navy-900 border border-navy-700 rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-1">
               <UserGroupIcon className="w-5 h-5 text-navy-300" />
-              <h2 className="text-white font-semibold">Jugadores a tu cargo con membresía inactiva</h2>
+              <h2 className="text-white font-semibold">Jugadores con membresía inactiva</h2>
             </div>
             <p className="text-navy-400 text-xs mb-4 leading-relaxed">
               El estado de tus jugadores será actualizado por la oficina del árbitro una vez confirmado el pago.
@@ -126,6 +145,17 @@ export default function InactiveLandingPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── Continue button — only when coach is active ──────── */}
+        {!coachInactive && (
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center justify-center gap-2 w-full max-w-xs py-3 px-6 bg-white text-navy-900 font-semibold rounded-xl hover:bg-navy-50 transition-colors shadow-sm"
+          >
+            Continuar al sistema
+            <ArrowRightIcon className="w-4 h-4" />
+          </button>
         )}
       </main>
 
