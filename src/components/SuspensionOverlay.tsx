@@ -160,15 +160,15 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
     return () => clearInterval(id);
   }, []);
 
-  const lift = async () => {
+   const lift = async () => {
     const current = suspension;
+    if (!current) return;
+    // Primero actualizar BD, luego ocultar
+    await supabase
+      .from('match_suspensions')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('id', current.id);
     setSuspension(null);
-    if (current) {
-      await supabase
-        .from('match_suspensions')
-        .update({ cancelled_at: new Date().toISOString() })
-        .eq('id', current.id);
-    }
   };
 
   return [suspension, lift];
