@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [suspendModal, setSuspendModal] = useState(false);
   const [resumeTime, setResumeTime] = useState('');
+  const [suspendNote, setSuspendNote] = useState('');
   const [suspending, setSuspending] = useState(false);
   const { user, isSuperAdmin } = useAuthStore();
   const [activeSuspension, dismissSuspension] = useActiveSuspension();
@@ -59,6 +60,7 @@ export default function DashboardPage() {
     const { error } = await supabase.from('match_suspensions').insert({
       reason: 'Lluvia',
       resume_time: resumeTime,
+      note: suspendNote.trim() || null,
       created_by: user?.id || null,
     });
     if (error) {
@@ -67,6 +69,7 @@ export default function DashboardPage() {
       toast('success', `Partido suspendido. Reinicio programado a las ${resumeTime}`);
       setSuspendModal(false);
       setResumeTime('');
+      setSuspendNote('');
     }
     setSuspending(false);
   }
@@ -115,7 +118,7 @@ export default function DashboardPage() {
 
       {/* Rain suspension — super admin only */}
       {isSuperAdmin() && (
-        <div className="card p-5 flex items-center justify-between gap-4">
+        <div className="card p-5 flex items-center justify-between gap-4 mb-6">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Control de Partido</h2>
             <p className="text-xs text-slate-500 mt-0.5">Registrar suspensión por condiciones climáticas</p>
@@ -155,7 +158,8 @@ export default function DashboardPage() {
           })}
         </div>
       </div>
-      {/* Suspension full-screen overlay — shown when active suspension exists */}
+
+      {/* Suspension full-screen overlay */}
       {activeSuspension && (
         <SuspensionOverlay
           suspension={activeSuspension}
@@ -174,13 +178,23 @@ export default function DashboardPage() {
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <div className="mb-5">
+            <div className="mb-4">
               <label className="block text-xs font-semibold text-navy-600 mb-1.5">Hora de reinicio estimada</label>
               <input
                 type="time"
                 className="input-field w-full"
                 value={resumeTime}
                 onChange={e => setResumeTime(e.target.value)}
+              />
+            </div>
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-navy-600 mb-1.5">Nota para los jugadores <span className="font-normal text-slate-400">(opcional)</span></label>
+              <textarea
+                className="input-field w-full resize-none"
+                rows={3}
+                placeholder="Ej: Esperamos que escampe. Por favor permanezcan en la zona de descanso."
+                value={suspendNote}
+                onChange={e => setSuspendNote(e.target.value)}
               />
             </div>
             <div className="flex gap-3">

@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CloudIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
 import { toast } from './Toast';
 
 interface ActiveSuspension {
   id: string;
-  resume_time: string;
+  resume_time: string; // HH:MM or HH:MM:SS from postgres
+  note?: string | null;
 }
 
 interface Props {
@@ -14,15 +15,18 @@ interface Props {
   onClose: () => void;
 }
 
-function parseResumeToday(resumeTime: string): Date {
-  const [h, m] = resumeTime.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, m, 0, 0);
-  return d;
+function buildTarget(resumeTime: string): Date {
+  const [hours, minutes] = resumeTime.split(':').map(Number);
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes, 0);
 }
 
-function fmtHHMM(t: string): string {
-  const [h, m] = t.split(':');
+function calcRemaining(resumeTime: string): number {
+  return Math.floor((buildTarget(resumeTime).getTime() - Date.now()) / 1000);
+}
+
+function fmtHHMM(resumeTime: string): string {
+  const [h, m] = resumeTime.split(':');
   return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
 }
 
@@ -35,18 +39,31 @@ function fmtCountdown(secs: number): string {
 }
 
 export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
-  const [remaining, setRemaining] = useState(0);
+  const [remaining, setRemaining] = useState(() => calcRemaining(suspension.resume_time));
   const [closing, setClosing] = useState(false);
+  const autoClosedRef = useRef(false);
 
   useEffect(() => {
-    function calc() {
-      const target = parseResumeToday(suspension.resume_time);
-      setRemaining(Math.max(0, Math.floor((target.getTime() - Date.now()) / 1000)));
-    }
-    calc();
-    const id = setInterval(calc, 1000);
+    const id = setInterval(() => {
+      const secs = calcRemaining(suspension.resume_time);
+      setRemaining(secs);
+
+      // Auto-cancel when countdown reaches zero
+      if (secs <= 0 && !autoClosedRef.current) {
+        autoClosedRef.current = true;
+        clearInterval(id);
+        supabase
+          .from('match_suspensions')
+          .update({ cancelled_at: new Date().toISOString() })
+          .eq('id', suspension.id)
+          .then(() => {
+            toast('success', 'Hora de reinicio alcanzada. Suspensión finalizada.');
+            onClose();
+          });
+      }
+    }, 1000);
     return () => clearInterval(id);
-  }, [suspension.resume_time]);
+  }, [suspension.id, suspension.resume_time, onClose]);
 
   async function handleClose() {
     setClosing(true);
@@ -80,7 +97,14 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
       <p className="text-4xl sm:text-5xl font-black tracking-widest uppercase mb-1">
         PARTIDO SUSPENDIDO
       </p>
-      <p className="text-slate-400 text-lg mb-12">Suspensión por lluvia</p>
+      <p className="text-slate-400 text-lg mb-2">Suspensión por lluvia</p>
+
+      {suspension.note && (
+        <p className="text-white text-base text-center max-w-md px-6 mb-10 leading-relaxed">
+          "{suspension.note}"
+        </p>
+      )}
+      {!suspension.note && <div className="mb-10" />}
 
       <div className="text-center mb-4">
         <p className="text-8xl sm:text-9xl font-mono font-black tracking-tight tabular-nums">
@@ -99,7 +123,8 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   );
 }
 
-// Hook — returns active suspension for today or null, plus a dismiss function
+// Hook — returns [activeSuspension, dismissFn]
+// dismissFn immediately hides the overlay by setting state to null (no page reload)
 export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => void] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
@@ -109,7 +134,7 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
       todayStart.setHours(0, 0, 0, 0);
       const { data } = await supabase
         .from('match_suspensions')
-        .select('id, resume_time')
+        .select('id, resume_time, note')
         .gte('created_at', todayStart.toISOString())
         .is('cancelled_at', null)
         .order('created_at', { ascending: false })
@@ -122,7 +147,6 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
     return () => clearInterval(id);
   }, []);
 
-  // Immediately hides the overlay without waiting for next poll
   const dismiss = () => setSuspension(null);
 
   return [suspension, dismiss];
