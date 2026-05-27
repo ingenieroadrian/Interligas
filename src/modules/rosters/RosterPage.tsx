@@ -260,7 +260,7 @@ export default function RosterPage() {
     const category = conf.category;
 
     async function loadSide(leagueId: string, leagueName: string): Promise<RosterSlotState> {
-      // Find active coach for league
+      // Try to find an active coach for the league (optional — admin can operate without one)
       const { data: coach } = await supabase
         .from('coaches')
         .select('id, league_id')
@@ -268,31 +268,29 @@ export default function RosterPage() {
         .eq('active', true)
         .maybeSingle();
 
+      // Always load all active players for the league+category, regardless of coach
       let playersData: Player[] = [];
-      if (coach && category) {
+      if (category) {
         const { data } = await supabase
           .from('players')
           .select('*')
-          .eq('coach_id', coach.id)
+          .eq('league_id', leagueId)
           .eq('league_active', true)
           .eq('category', category)
           .order('ranking', { ascending: true, nullsFirst: false });
         playersData = data || [];
       }
 
-      let rosterData: Roster | null = null;
-      if (coach) {
-        const { data } = await supabase
-          .from('rosters')
-          .select('*')
-          .eq('confrontation_id', conf.id)
-          .eq('coach_id', coach.id)
-          .maybeSingle();
-        rosterData = data as Roster | null;
-      }
+      // Look up roster by league_id (admin may have created it without a coach)
+      const rosterQuery = supabase
+        .from('rosters')
+        .select('*')
+        .eq('confrontation_id', conf.id)
+        .eq('league_id', leagueId);
+      const { data: rosterData } = await rosterQuery.maybeSingle();
 
       return {
-        roster: rosterData,
+        roster: (rosterData as Roster) ?? null,
         players: playersData,
         coachId: coach?.id ?? null,
         leagueId,
@@ -525,8 +523,8 @@ export default function RosterPage() {
   }
 
   async function handleAdminSave(side: RosterSlotState, submit: boolean) {
-    if (!confrontationId || !side.coachId || !side.leagueId) {
-      toast('error', 'No hay entrenador activo para esta liga.');
+    if (!confrontationId || !side.leagueId) {
+      toast('error', 'Liga no identificada.');
       return;
     }
 
