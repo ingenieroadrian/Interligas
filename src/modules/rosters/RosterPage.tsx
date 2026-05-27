@@ -407,8 +407,8 @@ export default function RosterPage() {
     setValidationErrors(errors);
   }, [slot1, slot2, doublesCombo, players, isAdmin]);
 
-  // Slot 1: ranking 2 or 3 only
-  const slot1Players = players.filter(p => p.ranking === 2 || p.ranking === 3);
+  // Slot 1: ranking 2 or 3 (players with no ranking are also allowed so the coach isn't blocked)
+  const slot1Players = players.filter(p => p.ranking === null || p.ranking === 2 || p.ranking === 3);
   const slot2Players = players.filter(p => p.id !== slot1);
 
   const validRankCombos = [[1, 2], [1, 3], [2, 3]];
@@ -417,12 +417,14 @@ export default function RosterPage() {
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
       const pA = players[i], pB = players[j];
-      if (pA.ranking === null || pB.ranking === null) continue;
-      const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
-      if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
+      // If both have rankings, validate the combo; if either lacks ranking allow it
+      if (pA.ranking !== null && pB.ranking !== null) {
+        const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
+        if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
+      }
       doublesOptions.push({
         key: makeComboKey(pA.id, pB.id),
-        label: `${pA.full_name} (Ranking #${pA.ranking}) + ${pB.full_name} (Ranking #${pB.ranking})`,
+        label: `${pA.full_name}${pA.ranking != null ? ` (Ranking #${pA.ranking})` : ''} + ${pB.full_name}${pB.ranking != null ? ` (Ranking #${pB.ranking})` : ''}`,
       });
     }
   }
