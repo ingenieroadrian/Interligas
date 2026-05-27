@@ -152,10 +152,9 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
         .maybeSingle();
       setSuspension(data ? (data as ActiveSuspension) : null);
     }
-    load();
-    const id = setInterval(load, 15000);
+   load();
+    const id = setInterval(load, 5000);
     return () => clearInterval(id);
-  }, []);
 
   const lift = async () => {
     const current = suspension;
