@@ -67,7 +67,7 @@ export default function PublicResultsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
-  const [activeSuspension] = useActiveSuspension();
+  const [activeSuspension, dismissSuspension] = useActiveSuspension();
 
   const loadData = useCallback(async () => {
     // Fetch confrontations that might have active matches
@@ -192,7 +192,7 @@ export default function PublicResultsPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Suspension overlay — no close button for public */}
       {activeSuspension && (
-        <SuspensionOverlay suspension={activeSuspension} canClose={false} />
+        <SuspensionOverlay suspension={activeSuspension} canClose={false} onClose={dismissSuspension} />
       )}
 
       <header className="bg-navy-900 px-6 py-5">
