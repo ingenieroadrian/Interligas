@@ -22,7 +22,7 @@ import CanchasPage from './modules/admin/CanchasPage';
 import PublicResultsPage from './modules/results/PublicResultsPage';
 
 function AppRoutes() {
-  const { user, initialized, coachProfile, hasInactivePlayers, role } = useAuthStore();
+  const { user, initialized, coachProfile, hasInactivePlayers, role, isMesaDeControl } = useAuthStore();
 
   if (!initialized) {
     return (
@@ -59,11 +59,13 @@ function AppRoutes() {
       <Route path="/" element={
         coachBlocked
           ? <Navigate to="/acceso-bloqueado" replace />
-          : <RouteGuard>
-              <Layout>
-                <DashboardPage />
-              </Layout>
-            </RouteGuard>
+          : isMesaDeControl()
+            ? <Navigate to="/resultados" replace />
+            : <RouteGuard>
+                <Layout>
+                  <DashboardPage />
+                </Layout>
+              </RouteGuard>
       } />
       <Route path="/ligas" element={
         coachBlocked

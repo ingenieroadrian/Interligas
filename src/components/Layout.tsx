@@ -22,7 +22,7 @@ const navItems = [
   { to: '/ligas', icon: TrophyIcon, label: 'Ligas', module: 'leagues' },
   { to: '/jugadores', icon: UserGroupIcon, label: 'Jugadores', module: 'players' },
   { to: '/entrenadores', icon: AcademicCapIcon, label: 'Entrenadores', module: 'coaches' },
-  { to: '/nominas', icon: ClipboardDocumentListIcon, label: 'Nóminas', module: 'rosters' },
+  { to: '/nominas', icon: ClipboardDocumentListIcon, label: 'Programación', module: 'rosters' },
   { to: '/resultados', icon: ChartBarIcon, label: 'Resultados', module: 'results' },
   { to: '/canchas', icon: MapPinIcon, label: 'Canchas', module: 'canchas', superAdminOnly: true },
   { to: '/usuarios', icon: UsersIcon, label: 'Usuarios del Sistema', module: 'users', superAdminOnly: true },
@@ -30,13 +30,16 @@ const navItems = [
   { to: '/configuracion/pagos', icon: QrCodeIcon, label: 'Configuración de Pagos', module: 'pagos', superAdminOnly: true },
 ];
 
+// Items visible to Mesa de Control exclusively
+const MESA_DE_CONTROL_ROUTES = new Set(['/nominas', '/resultados']);
+
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, role, signOut, isSuperAdmin, hasPermission } = useAuthStore();
+  const { user, role, signOut, isSuperAdmin, isMesaDeControl, hasPermission } = useAuthStore();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -45,6 +48,7 @@ export default function Layout({ children }: LayoutProps) {
   };
 
   const visibleItems = navItems.filter(item => {
+    if (isMesaDeControl()) return MESA_DE_CONTROL_ROUTES.has(item.to);
     if (item.superAdminOnly) return isSuperAdmin();
     if (!item.module) return true;
     return hasPermission(item.module as any, 'view');

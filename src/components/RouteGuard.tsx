@@ -10,7 +10,7 @@ interface RouteGuardProps {
 }
 
 export default function RouteGuard({ children, module, action = 'view', superAdminOnly }: RouteGuardProps) {
-  const { user, isSuperAdmin, hasPermission } = useAuthStore();
+  const { user, isSuperAdmin, isMesaDeControl, hasPermission } = useAuthStore();
 
   if (!user) return <Navigate to="/login" replace />;
 
@@ -18,8 +18,10 @@ export default function RouteGuard({ children, module, action = 'view', superAdm
     return <Navigate to="/" replace />;
   }
 
+  // Mesa de Control bypasses module permission checks for results and rosters (view)
   if (module && !hasPermission(module, action)) {
-    return <Navigate to="/" replace />;
+    const mesaAllowed = isMesaDeControl() && (module === 'results' || module === 'rosters') && action === 'view';
+    if (!mesaAllowed) return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;

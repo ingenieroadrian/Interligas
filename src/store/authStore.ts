@@ -15,6 +15,7 @@ interface AuthState {
   loadProfile: () => Promise<void>;
   hasPermission: (module: PermissionModule, action: PermissionAction) => boolean;
   isSuperAdmin: () => boolean;
+  isMesaDeControl: () => boolean;
   isInactiveCoach: () => boolean;
 }
 
@@ -113,6 +114,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   isSuperAdmin: () => {
     return get().role?.name === 'Super Admin';
+  },
+
+  isMesaDeControl: () => {
+    return get().role?.name === 'Mesa de Control';
   },
 
   isInactiveCoach: () => {

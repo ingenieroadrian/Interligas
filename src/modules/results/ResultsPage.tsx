@@ -144,8 +144,8 @@ export default function ResultsPage() {
   const [champions, setChampions] = useState<ChampionRow[]>([]);
   const [standingsTab, setStandingsTab] = useState('');
 
-  const { isSuperAdmin, hasPermission, user } = useAuthStore();
-  const canEdit = isSuperAdmin() || hasPermission('results', 'edit');
+  const { isSuperAdmin, isMesaDeControl, hasPermission, user } = useAuthStore();
+  const canEdit = isSuperAdmin() || isMesaDeControl() || hasPermission('results', 'edit');
   const navigate = useNavigate();
 
   const loadStandings = useCallback(async () => {
