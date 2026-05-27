@@ -479,9 +479,37 @@ export default function RosterPage() {
       toast(`Error al guardar: ${error.message}`, 'error');
     } else {
       toast(submit ? 'Nómina enviada exitosamente.' : 'Borrador guardado.', 'success');
-      if (submit) loadData();
+      if (submit) {
+        loadData();
+        if (confrontationId) await maybeCloseConfrontation(confrontationId);
+      }
     }
     setSaving(false);
+  }
+
+  async function maybeCloseConfrontation(confId: string) {
+    const { data: allRosters } = await supabase
+      .from('rosters')
+      .select('is_submitted, league_id')
+      .eq('confrontation_id', confId);
+
+    if (!allRosters || allRosters.length < 2) return;
+    const bothSubmitted = allRosters.length >= 2 && allRosters.every(r => r.is_submitted);
+    if (!bothSubmitted) return;
+
+    const { data: conf } = await supabase
+      .from('confrontations')
+      .select('status, home_league_id, away_league_id')
+      .eq('id', confId)
+      .maybeSingle();
+
+    if (!conf || conf.status !== 'alineacion') return;
+
+    // Verify both leagues have submitted
+    const leagueIds = new Set(allRosters.map(r => r.league_id));
+    if (!leagueIds.has(conf.home_league_id) || !leagueIds.has(conf.away_league_id)) return;
+
+    await supabase.from('confrontations').update({ status: 'cerrada' }).eq('id', confId);
   }
 
   async function handleAdminSave(side: RosterSlotState, submit: boolean) {
@@ -523,7 +551,10 @@ export default function RosterPage() {
       toast(`Error al guardar: ${error.message}`, 'error');
     } else {
       toast(submit ? 'Nómina guardada y marcada como enviada.' : 'Borrador guardado.', 'success');
-      if (confrontation) await loadAdminData(confrontation);
+      if (confrontation) {
+        await loadAdminData(confrontation);
+        if (submit) await maybeCloseConfrontation(confrontation.id);
+      }
     }
     setSaving(false);
   }

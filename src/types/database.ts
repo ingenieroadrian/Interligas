@@ -124,6 +124,23 @@ export interface MatchAssignment {
   assigned_by: string | null;
 }
 
+export type MatchWinner = 'home' | 'away';
+
+export interface MatchResult {
+  id: string;
+  confrontation_id: string;
+  slot: RosterSlot;
+  home_player_ids: string[];
+  away_player_ids: string[];
+  home_score: string;
+  away_score: string;
+  winner: MatchWinner | null;
+  notes: string;
+  recorded_by: string | null;
+  recorded_at: string | null;
+  created_at: string;
+}
+
 export interface StatusLog {
   id: string;
   confrontation_id: string;

@@ -307,7 +307,7 @@ export default function ConfrontationsPage() {
                           <PencilSquareIcon className="w-4 h-4" />
                         </button>
                       )}
-                      {!isCoach && canDelete && c.status === 'programada' && (
+                      {!isCoach && canDelete && (
                         <button
                           onClick={() => setDeleteTarget(c)}
                           className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
