@@ -48,8 +48,6 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
     const id = setInterval(() => {
       const r = calcRemaining(suspension.resume_time);
       setRemaining(r);
-
-      // Cuando llega a 0 por primera vez levanta automáticamente
       if (r <= 0 && !closedRef.current) {
         closedRef.current = true;
         supabase
@@ -139,31 +137,28 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
   useEffect(() => {
-    async function handleClose() {
-    if (closedRef.current) return;
-    closedRef.current = true;
-    setClosing(true);
-    const { error } = await supabase
-      .from('match_suspensions')
-      .update({ cancelled_at: new Date().toISOString() })
-      .eq('id', suspension.id);
-    if (error) {
-      toast('error', 'No se pudo levantar la suspensión. Intenta nuevamente.');
-      closedRef.current = false;
-      setClosing(false);
-      return;
+    async function load() {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from('match_suspensions')
+        .select('id, resume_time, note')
+        .gte('created_at', todayStart.toISOString())
+        .is('cancelled_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setSuspension(data ? (data as ActiveSuspension) : null);
     }
-    // Esperar confirmación antes de cerrar
-    onClose();
-  }
+    load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
   }, []);
 
-   const lift = async () => {
+  const lift = async () => {
     const current = suspension;
     if (!current) return;
-    // Primero actualizar BD, luego ocultar
+    // Primero escribe en BD, luego oculta — evita que el intervalo lo traiga de vuelta
     await supabase
       .from('match_suspensions')
       .update({ cancelled_at: new Date().toISOString() })
