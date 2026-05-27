@@ -5,7 +5,7 @@ import { toast } from './Toast';
 
 interface ActiveSuspension {
   id: string;
-  resume_time: string; // HH:MM or HH:MM:SS from postgres
+  resume_time: string;
   note?: string | null;
 }
 
@@ -51,17 +51,16 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   }, [suspension.resume_time]);
 
   useEffect(() => {
-    if (remaining <= 0) {
-      const timer = setTimeout(async () => {
-        await supabase
-          .from('match_suspensions')
-          .update({ cancelled_at: new Date().toISOString() })
-          .eq('id', suspension.id);
-        onClose();
-      }, 3000); // espera 3 segundos mostrando "Hora alcanzada" y luego cierra
-      return () => clearTimeout(timer);
-    }
-  }, [remaining, suspension.id]);
+    if (remaining > 0) return;
+    const timer = setTimeout(async () => {
+      await supabase
+        .from('match_suspensions')
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq('id', suspension.id);
+      onClose();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleClose() {
     setClosing(true);
@@ -118,7 +117,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
               <CheckCircleIcon className="w-6 h-6" />
               <p className="text-xl font-bold uppercase tracking-widest">Hora de reinicio alcanzada</p>
             </div>
-            <p className="text-slate-400 text-sm uppercase tracking-widest">En espera del reinicio oficial</p>
+            <p className="text-slate-400 text-sm uppercase tracking-widest">Cerrando en unos segundos...</p>
           </>
         ) : (
           <>
@@ -133,8 +132,6 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   );
 }
 
-// Hook — returns [activeSuspension, liftFn]
-// liftFn writes cancelled_at to DB and hides the overlay
 export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => Promise<void>] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
@@ -152,9 +149,10 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
         .maybeSingle();
       setSuspension(data ? (data as ActiveSuspension) : null);
     }
-   load();
+    load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
+  }, []);
 
   const lift = async () => {
     const current = suspension;
