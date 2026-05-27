@@ -186,7 +186,7 @@ function AdminRosterEditor({ state, confrontationId: _cid, saving, onSave, onCha
         </button>
         <button
           onClick={() => onSave(state, true)}
-          disabled={saving || !allFilled}
+          disabled={saving}
           className="btn-primary flex-1"
         >
           {saving ? 'Enviando...' : 'Guardar y marcar enviada'}
