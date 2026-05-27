@@ -34,15 +34,13 @@ const SLOT_LABELS: Record<RosterSlot, string> = {
   dobles: 'Dobles',
 };
 
-// ── Tennis logic ────────────────────────────────────────────────────────────
 function setWinner(home: number, away: number): 'home' | 'away' | null {
   if (home === away) return null;
-  // Tiebreak: first to 7 with 2 ahead (or 7-6 style where 7 beats 6)
   const hi = Math.max(home, away), lo = Math.min(home, away);
   const side = home > away ? 'home' : 'away';
   if (hi >= 6 && hi - lo >= 2) return side;
-  if (hi === 7 && lo === 6) return side;   // tiebreak set
-  if (hi === 7 && lo === 5) return side;   // rare but valid
+  if (hi === 7 && lo === 6) return side;
+  if (hi === 7 && lo === 5) return side;
   return null;
 }
 
@@ -69,7 +67,6 @@ function isValidSet(h: number, a: number): boolean {
   return setWinner(h, a) !== null;
 }
 
-// ── Interfaces ───────────────────────────────────────────────────────────────
 interface MatchVS {
   slot: RosterSlot;
   homePlayers: Player[];
@@ -107,9 +104,8 @@ const EMPTY_FORM: ResultForm = {
   wo: false, wo_winner: '', notes: '',
 };
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
 function playerLabel(players: Player[]): string {
-  return players.map(p => p.full_name).join(' / ') || 'Sin asignar';
+  return players.map(p => p.full_name).join(' / ') || 'Jugador';
 }
 
 function num(v: string): number | null {
@@ -117,74 +113,20 @@ function num(v: string): number | null {
   return isNaN(n) ? null : n;
 }
 
-// ── Scoreboard cell ───────────────────────────────────────────────────────────
-interface SetCellProps {
-  home: number | null;
-  away: number | null;
-  winner: MatchWinner | null;
+interface StandingRow {
+  league_id: string;
+  leagueName: string;
+  wins: number;
+  losses: number;
 }
 
-function SetCell({ home, away, winner }: SetCellProps) {
-  if (home == null && away == null) return <td className="w-10 text-center text-navy-200 text-sm">—</td>;
-  const homeWon = winner === 'home';
-  const awayWon = winner === 'away';
-  return (
-    <td className="w-12 text-center">
-      <div className="flex flex-col items-center gap-0">
-        <span className={`text-sm font-bold w-8 text-center rounded ${homeWon ? 'text-white bg-[#1a2a5e]' : 'text-navy-600'}`}>
-          {home ?? '—'}
-        </span>
-        <span className={`text-sm font-bold w-8 text-center rounded ${awayWon ? 'text-white bg-[#1a2a5e]' : 'text-navy-600'}`}>
-          {away ?? '—'}
-        </span>
-      </div>
-    </td>
-  );
+interface ChampionRow {
+  category: string;
+  leagueName: string;
+  year_won: number;
+  logo_url: string | null;
 }
 
-// ── Set input pair ────────────────────────────────────────────────────────────
-interface SetInputProps {
-  label: string;
-  homeVal: string;
-  awayVal: string;
-  onHomeChange: (v: string) => void;
-  onAwayChange: (v: string) => void;
-  warn?: boolean;
-}
-
-function SetInput({ label, homeVal, awayVal, onHomeChange, onAwayChange, warn }: SetInputProps) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className={`text-xs font-semibold uppercase tracking-wide ${warn ? 'text-red-500' : 'text-navy-400'}`}>{label}</span>
-      <input
-        type="number"
-        min="0"
-        max="99"
-        className={`w-14 text-center input-field py-1.5 text-sm ${warn ? 'border-red-300' : ''}`}
-        placeholder="0"
-        value={homeVal}
-        onChange={e => onHomeChange(e.target.value)}
-      />
-      <input
-        type="number"
-        min="0"
-        max="99"
-        className={`w-14 text-center input-field py-1.5 text-sm ${warn ? 'border-red-300' : ''}`}
-        placeholder="0"
-        value={awayVal}
-        onChange={e => onAwayChange(e.target.value)}
-      />
-    </div>
-  );
-}
-
-function formatElapsed(secs: number): string {
-  const m = Math.floor(secs / 60).toString().padStart(2, '0');
-  const s = (secs % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}
-
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function ResultsPage() {
   const [confrontations, setConfrontations] = useState<ConfrontationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,9 +139,45 @@ export default function ResultsPage() {
   const [finishing, setFinishing] = useState<string | null>(null);
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
 
+  // Standings
+  const [standingsByCategory, setStandingsByCategory] = useState<Record<string, StandingRow[]>>({});
+  const [champions, setChampions] = useState<ChampionRow[]>([]);
+  const [standingsTab, setStandingsTab] = useState('');
+
   const { isSuperAdmin, hasPermission, user } = useAuthStore();
   const canEdit = isSuperAdmin() || hasPermission('results', 'edit');
   const navigate = useNavigate();
+
+  const loadStandings = useCallback(async () => {
+    const [{ data: standings }, { data: champData }] = await Promise.all([
+      supabase.from('series_standings').select('category, league_id, wins, losses, leagues(name)'),
+      supabase.from('champion_config').select('category, year_won, logo_url, leagues(name)'),
+    ]);
+    const byCategory: Record<string, StandingRow[]> = {};
+    for (const s of (standings || [])) {
+      const cat = s.category;
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push({
+        league_id: s.league_id,
+        leagueName: (s as any).leagues?.name || '—',
+        wins: s.wins,
+        losses: s.losses,
+      });
+    }
+    for (const cat of Object.keys(byCategory)) {
+      byCategory[cat].sort((a, b) => b.wins - a.wins);
+    }
+    setStandingsByCategory(byCategory);
+    const champs: ChampionRow[] = (champData || []).map((c: any) => ({
+      category: c.category,
+      leagueName: c.leagues?.name || '—',
+      year_won: c.year_won,
+      logo_url: c.logo_url,
+    }));
+    setChampions(champs);
+    const cats = Object.keys(byCategory);
+    if (cats.length > 0) setStandingsTab(prev => prev && cats.includes(prev) ? prev : cats[0]);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -224,7 +202,6 @@ export default function ResultsPage() {
     const { data: assignments } = rosterIds.length
       ? await supabase.from('match_assignments').select('roster_id, slot, court').in('roster_id', rosterIds)
       : { data: [] };
-    // Map: `${roster_id}-${slot}` → court string
     const courtMap = new Map<string, string>();
     for (const a of (assignments || [])) {
       if (a.court) courtMap.set(`${a.roster_id}-${a.slot}`, a.court);
@@ -262,7 +239,6 @@ export default function ResultsPage() {
         }
 
         const result = confResults.find(r => r.slot === slot) || null;
-        // Court from match_assignments: check home then away roster
         const homeCourt = homeRoster ? courtMap.get(`${homeRoster.id}-${slot}`) || null : null;
         const awayCourt = awayRoster ? courtMap.get(`${awayRoster.id}-${slot}`) || null : null;
         const court = homeCourt || awayCourt;
@@ -284,7 +260,7 @@ export default function ResultsPage() {
     setLoading(false);
   }, [search]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); loadStandings(); }, [loadData, loadStandings]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -318,12 +294,10 @@ export default function ResultsPage() {
     } : EMPTY_FORM);
   }
 
-  // Derived winner from current form inputs
   const formWinner: MatchWinner | null = form.wo
     ? (form.wo_winner as MatchWinner | null) || null
     : computeMatchWinner(num(form.s1h), num(form.s1a), num(form.s2h), num(form.s2a), num(form.s3h), num(form.s3a));
 
-  // Set validity warnings
   const s1warn = form.s1h !== '' && form.s1a !== '' && num(form.s1h) != null && num(form.s1a) != null
     && !isValidSet(num(form.s1h)!, num(form.s1a)!);
   const s2warn = form.s2h !== '' && form.s2a !== '' && num(form.s2h) != null && num(form.s2a) != null
@@ -336,7 +310,6 @@ export default function ResultsPage() {
     setSaving(true);
 
     const { confrontationId, slot, homePlayers, awayPlayers, existing } = editTarget;
-
     const winner = form.wo ? (form.wo_winner as MatchWinner | null) || null : formWinner;
 
     const payload = {
@@ -374,16 +347,74 @@ export default function ResultsPage() {
     } else {
       toast('success', 'Resultado guardado.');
       setEditTarget(null);
-      loadData();
+      await loadData();
+      // Check and update series standings after save
+      await updateSeriesIfComplete(confrontationId);
     }
     setSaving(false);
   }
 
+  async function updateSeriesIfComplete(confrontationId: string) {
+    const conf = confrontations.find(c => c.id === confrontationId);
+    if (!conf) return;
+
+    // Re-fetch results to get updated state
+    const { data: allResults } = await supabase
+      .from('match_results')
+      .select('winner, match_status')
+      .eq('confrontation_id', confrontationId);
+
+    if (!allResults || allResults.length < 3) return;
+    if (!allResults.every(r => r.match_status === 'finished')) return;
+
+    let homeWins = 0, awayWins = 0;
+    for (const r of allResults) {
+      if (r.winner === 'home') homeWins++;
+      else if (r.winner === 'away') awayWins++;
+    }
+
+    const seriesWinner: 'home' | 'away' | null = homeWins >= 2 ? 'home' : awayWins >= 2 ? 'away' : null;
+    if (!seriesWinner) return;
+
+    const winnerLeagueId = seriesWinner === 'home' ? conf.home_league_id : conf.away_league_id;
+    const loserLeagueId = seriesWinner === 'home' ? conf.away_league_id : conf.home_league_id;
+
+    // Update series_winner on confrontation
+    await supabase.from('confrontations').update({ series_winner: seriesWinner }).eq('id', confrontationId);
+
+    // UPSERT standings for winner
+    await supabase.from('series_standings').upsert(
+      { category: conf.category, league_id: winnerLeagueId, wins: 1, losses: 0, updated_at: new Date().toISOString() },
+      { onConflict: 'category,league_id', ignoreDuplicates: false }
+    );
+    // Increment: fetch current and update
+    const { data: wRow } = await supabase.from('series_standings')
+      .select('wins').eq('category', conf.category).eq('league_id', winnerLeagueId).maybeSingle();
+    if (wRow) {
+      await supabase.from('series_standings')
+        .update({ wins: wRow.wins + 1, updated_at: new Date().toISOString() })
+        .eq('category', conf.category).eq('league_id', winnerLeagueId);
+    }
+
+    // UPSERT standings for loser
+    const { data: lRow } = await supabase.from('series_standings')
+      .select('losses').eq('category', conf.category).eq('league_id', loserLeagueId).maybeSingle();
+    if (lRow) {
+      await supabase.from('series_standings')
+        .update({ losses: lRow.losses + 1, updated_at: new Date().toISOString() })
+        .eq('category', conf.category).eq('league_id', loserLeagueId);
+    } else {
+      await supabase.from('series_standings').insert({
+        category: conf.category, league_id: loserLeagueId, wins: 0, losses: 1
+      });
+    }
+
+    await loadStandings();
+  }
+
   async function handleStartMatch(confrontationId: string, slot: RosterSlot, homePlayers: Player[], awayPlayers: Player[], existing: MatchResult | null) {
     setStarting(`${confrontationId}-${slot}`);
-
     const now = new Date().toISOString();
-
     if (existing) {
       await supabase.from('match_results').update({ match_status: 'in_progress', started_at: now }).eq('id', existing.id);
     } else {
@@ -399,13 +430,7 @@ export default function ResultsPage() {
         wo: false,
       });
     }
-
-    // Auto-transition confrontation to en_curso
-    await supabase.from('confrontations')
-      .update({ status: 'en_curso' })
-      .eq('id', confrontationId)
-      .eq('status', 'cerrada');
-
+    await supabase.from('confrontations').update({ status: 'en_curso' }).eq('id', confrontationId).eq('status', 'cerrada');
     toast('success', 'Partido iniciado.');
     setStarting(null);
     loadData();
@@ -415,18 +440,15 @@ export default function ResultsPage() {
     setFinishing(`${confrontationId}-${slot}`);
     await supabase.from('match_results').update({ match_status: 'finished', finished_at: new Date().toISOString() }).eq('id', existingId);
 
-    // Check if all matches in this confrontation are finished
-    const { data: allResults } = await supabase
-      .from('match_results')
-      .select('match_status')
-      .eq('confrontation_id', confrontationId);
+    const { data: allResults } = await supabase.from('match_results').select('match_status, winner').eq('confrontation_id', confrontationId);
     if (allResults && allResults.length === 3 && allResults.every(r => r.match_status === 'finished')) {
       await supabase.from('confrontations').update({ status: 'finalizada' }).eq('id', confrontationId);
     }
 
     toast('success', 'Partido finalizado.');
     setFinishing(null);
-    loadData();
+    await loadData();
+    await updateSeriesIfComplete(confrontationId);
   }
 
   // Per-slot scoreboard display
@@ -442,7 +464,6 @@ export default function ResultsPage() {
     const isFinishingThis = finishing === startKey;
     const elapsed = elapsedTimes[startKey];
 
-    // Determine per-set winners for highlighting
     const setResults: Array<{ homeVal: number | null; awayVal: number | null; setWin: 'home' | 'away' | null }> = [
       { homeVal: r?.set1_home ?? null, awayVal: r?.set1_away ?? null, setWin: (r?.set1_home != null && r?.set1_away != null) ? setWinner(r.set1_home!, r.set1_away!) : null },
       { homeVal: r?.set2_home ?? null, awayVal: r?.set2_away ?? null, setWin: (r?.set2_home != null && r?.set2_away != null) ? setWinner(r.set2_home!, r.set2_away!) : null },
@@ -460,7 +481,6 @@ export default function ResultsPage() {
         isInProgress ? 'border-green-300 bg-green-50/30' :
         'border-slate-200 bg-white'
       }`}>
-        {/* Slot header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-semibold text-navy-600 uppercase tracking-wide flex-shrink-0">
@@ -477,7 +497,7 @@ export default function ResultsPage() {
               <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
                 En curso
-                {elapsed != null && <span className="font-mono">{formatElapsed(elapsed)}</span>}
+                {elapsed != null && <span className="font-mono">{elapsed >= 3600 ? `${Math.floor(elapsed/3600)}:${String(Math.floor((elapsed%3600)/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}` : `${String(Math.floor(elapsed/60)).padStart(2,'0')}:${String(elapsed%60).padStart(2,'0')}`}</span>}
               </span>
             )}
             {isFinished && (
@@ -520,9 +540,7 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* Scoreboard */}
         <div className="px-4 py-3">
-          {/* WO result */}
           {r?.wo ? (
             <div className="flex items-center gap-3">
               <div className="flex-1 space-y-1">
@@ -540,7 +558,6 @@ export default function ResultsPage() {
               </div>
             </div>
           ) : hasAnyScore ? (
-            /* Scoreboard table */
             <table className="w-full">
               <tbody>
                 <tr>
@@ -576,7 +593,6 @@ export default function ResultsPage() {
               </tbody>
             </table>
           ) : (
-            /* No score yet */
             <div className="flex items-center justify-between text-sm">
               <span className={`font-medium truncate max-w-[40%] ${r?.winner === 'home' ? 'text-navy-900 font-semibold' : 'text-navy-500'}`}>
                 {playerLabel(match.homePlayers)}
@@ -595,6 +611,10 @@ export default function ResultsPage() {
     );
   }
 
+  const standingsCats = Object.keys(standingsByCategory).sort();
+  const activeChampion = champions.find(c => c.category === standingsTab);
+  const activeStandings = standingsByCategory[standingsTab] || [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -605,6 +625,114 @@ export default function ResultsPage() {
       </div>
 
       <SearchInput value={search} onChange={v => setSearch(v)} placeholder="Buscar por liga o categoría..." />
+
+      {/* Standings + Champion section */}
+      {standingsCats.length > 0 && (
+        <div className="card overflow-hidden">
+          {standingsCats.length > 1 && (
+            <div className="flex border-b border-slate-100 bg-slate-50 overflow-x-auto">
+              {standingsCats.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setStandingsTab(cat)}
+                  className={`px-4 py-2.5 text-xs font-semibold flex-shrink-0 transition-colors border-b-2 ${
+                    standingsTab === cat
+                      ? 'border-navy-700 text-navy-800 bg-white'
+                      : 'border-transparent text-slate-500 hover:text-navy-700'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {activeChampion ? (
+              <div className="flex items-center gap-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                {activeChampion.logo_url ? (
+                  <img src={activeChampion.logo_url} alt="logo" className="w-14 h-14 object-contain rounded-lg flex-shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <TrophyIcon className="w-7 h-7 text-amber-600" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-0.5">Campeón Defensor</p>
+                  <p className="font-bold text-navy-900 text-sm leading-tight truncate">{activeChampion.leagueName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Campeón defensor {activeChampion.year_won}</p>
+                  <span className="inline-block mt-1 text-xs font-bold px-2 py-0.5 bg-navy-100 text-navy-700 rounded-md">{activeChampion.category}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <TrophyIcon className="w-7 h-7 text-slate-300" />
+                </div>
+                <p className="text-sm text-slate-400">Sin campeón defensor registrado para {standingsTab}</p>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-bold text-navy-700 uppercase tracking-wider mb-3">
+                Carrera por el título — {standingsTab}
+              </p>
+              {activeStandings.length === 0 ? (
+                <p className="text-xs text-slate-400">Sin datos aún.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    const maxWins = Math.max(...activeStandings.map(s => s.wins), 1);
+                    return activeStandings.map(s => (
+                      <div key={s.league_id}>
+                        <div className="flex items-center justify-between text-xs mb-0.5">
+                          <span className="font-medium text-navy-700 truncate max-w-[70%]">{s.leagueName}</span>
+                          <span className="font-bold text-navy-900 flex-shrink-0 ml-2">{s.wins}V {s.losses}D</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-navy-700 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round((s.wins / maxWins) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {activeStandings.length > 0 && (
+            <div className="border-t border-slate-100">
+              <div className="px-5 py-3 bg-slate-50">
+                <p className="text-xs font-bold text-navy-700 uppercase tracking-wider">Tabla de Posiciones — {standingsTab}</p>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="text-left px-5 py-2 text-xs font-semibold text-slate-500">Liga</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 w-16">G</th>
+                    <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 w-16">P</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeStandings.map((s, i) => (
+                    <tr key={s.league_id} className={`border-b border-slate-50 ${i === 0 ? 'bg-amber-50/50' : ''}`}>
+                      <td className="px-5 py-2.5 font-medium text-navy-800">
+                        {i === 0 && <TrophyIcon className="w-3.5 h-3.5 text-amber-500 inline mr-1.5 -mt-0.5" />}
+                        {s.leagueName}
+                      </td>
+                      <td className="text-center px-3 py-2.5 font-bold text-navy-900">{s.wins}</td>
+                      <td className="text-center px-3 py-2.5 text-slate-500">{s.losses}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -621,23 +749,38 @@ export default function ResultsPage() {
           {confrontations.map(conf => {
             const isOpen = expanded === conf.id;
             const allResultsDone = conf.matches.every(m => m.result?.winner);
+            // Series score for finished confrontations
+            let seriesLabel = '';
+            if (conf.status === 'finalizada') {
+              let hw = 0, aw = 0;
+              for (const m of conf.matches) {
+                if (m.result?.winner === 'home') hw++;
+                else if (m.result?.winner === 'away') aw++;
+              }
+              if (hw > 0 || aw > 0) seriesLabel = `${conf.home_league?.name} ${hw} — ${aw} ${conf.away_league?.name}`;
+            }
             return (
               <div key={conf.id} className="card overflow-hidden">
                 <button
                   className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
                   onClick={() => setExpanded(isOpen ? null : conf.id)}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-navy-100 text-navy-700 text-xs font-semibold flex-shrink-0">
-                      {conf.category}
-                    </span>
-                    <span className="font-semibold text-navy-800 text-sm truncate">
-                      {conf.home_league?.name} <span className="text-navy-400 font-normal">vs</span> {conf.away_league?.name}
-                    </span>
-                    {allResultsDone && (
-                      <span className="hidden sm:inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex-shrink-0">
-                        <CheckCircleIcon className="w-3 h-3" /> Completo
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-navy-100 text-navy-700 text-xs font-semibold flex-shrink-0">
+                        {conf.category}
                       </span>
+                      <span className="font-semibold text-navy-800 text-sm truncate">
+                        {conf.home_league?.name} <span className="text-navy-400 font-normal">vs</span> {conf.away_league?.name}
+                      </span>
+                      {allResultsDone && (
+                        <span className="hidden sm:inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex-shrink-0">
+                          <CheckCircleIcon className="w-3 h-3" /> Completo
+                        </span>
+                      )}
+                    </div>
+                    {seriesLabel && (
+                      <p className="text-xs text-navy-500 font-medium pl-0.5">{seriesLabel}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -671,7 +814,6 @@ export default function ResultsPage() {
                         awayName={conf.away_league?.name || 'Visitante'}
                       />
                     ))}
-
                     {canEdit && (
                       <div className="flex justify-end pt-1">
                         <button
@@ -691,15 +833,9 @@ export default function ResultsPage() {
       )}
 
       {/* Result Modal */}
-      <Modal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title="Registrar Resultado"
-        size="sm"
-      >
+      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Registrar Resultado" size="sm">
         {editTarget && (
           <div className="space-y-5">
-            {/* Match header */}
             <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm">
               <p className="font-semibold text-navy-700 mb-1">{SLOT_LABELS[editTarget.slot]}</p>
               <div className="flex items-center justify-between text-xs text-navy-500 gap-2">
@@ -709,7 +845,6 @@ export default function ResultsPage() {
               </div>
             </div>
 
-            {/* WO toggle */}
             <label className="flex items-center gap-3 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -721,7 +856,6 @@ export default function ResultsPage() {
             </label>
 
             {form.wo ? (
-              /* WO winner selector */
               <div>
                 <label className="label">Jugador/Pareja ganadora por W.O.</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -743,53 +877,32 @@ export default function ResultsPage() {
                 </div>
               </div>
             ) : (
-              /* Set inputs */
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-xs font-semibold text-navy-500 uppercase tracking-wide">Marcador por sets</p>
                   <div className="flex-1 h-px bg-slate-100" />
                 </div>
-                {/* Player labels */}
                 <div className="flex gap-2 mb-1 px-1">
                   <span className="flex-1 text-xs font-medium text-navy-600 truncate">{playerLabel(editTarget.homePlayers)}</span>
                   <span className="text-xs text-navy-300 flex-shrink-0 w-14 text-center">S1</span>
                   <span className="text-xs text-navy-300 flex-shrink-0 w-14 text-center">S2</span>
                   <span className="text-xs text-navy-300 flex-shrink-0 w-14 text-center">S3</span>
                 </div>
-
-                {/* Home row */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="flex-1 text-xs text-navy-500 truncate">{playerLabel(editTarget.homePlayers)}</span>
-                  <input type="number" min="0" max="99" placeholder="0"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s1warn ? 'border-red-300' : ''}`}
-                    value={form.s1h} onChange={e => setForm(f => ({ ...f, s1h: e.target.value }))} />
-                  <input type="number" min="0" max="99" placeholder="0"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s2warn ? 'border-red-300' : ''}`}
-                    value={form.s2h} onChange={e => setForm(f => ({ ...f, s2h: e.target.value }))} />
-                  <input type="number" min="0" max="99" placeholder="—"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s3warn ? 'border-red-300' : ''}`}
-                    value={form.s3h} onChange={e => setForm(f => ({ ...f, s3h: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="0" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s1warn ? 'border-red-300' : ''}`} value={form.s1h} onChange={e => setForm(f => ({ ...f, s1h: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="0" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s2warn ? 'border-red-300' : ''}`} value={form.s2h} onChange={e => setForm(f => ({ ...f, s2h: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="—" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s3warn ? 'border-red-300' : ''}`} value={form.s3h} onChange={e => setForm(f => ({ ...f, s3h: e.target.value }))} />
                 </div>
-
-                {/* Away row */}
                 <div className="flex items-center gap-2">
                   <span className="flex-1 text-xs text-navy-500 truncate">{playerLabel(editTarget.awayPlayers)}</span>
-                  <input type="number" min="0" max="99" placeholder="0"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s1warn ? 'border-red-300' : ''}`}
-                    value={form.s1a} onChange={e => setForm(f => ({ ...f, s1a: e.target.value }))} />
-                  <input type="number" min="0" max="99" placeholder="0"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s2warn ? 'border-red-300' : ''}`}
-                    value={form.s2a} onChange={e => setForm(f => ({ ...f, s2a: e.target.value }))} />
-                  <input type="number" min="0" max="99" placeholder="—"
-                    className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s3warn ? 'border-red-300' : ''}`}
-                    value={form.s3a} onChange={e => setForm(f => ({ ...f, s3a: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="0" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s1warn ? 'border-red-300' : ''}`} value={form.s1a} onChange={e => setForm(f => ({ ...f, s1a: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="0" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s2warn ? 'border-red-300' : ''}`} value={form.s2a} onChange={e => setForm(f => ({ ...f, s2a: e.target.value }))} />
+                  <input type="number" min="0" max="99" placeholder="—" className={`w-14 text-center input-field py-1.5 text-sm flex-shrink-0 ${s3warn ? 'border-red-300' : ''}`} value={form.s3a} onChange={e => setForm(f => ({ ...f, s3a: e.target.value }))} />
                 </div>
-
                 {(s1warn || s2warn || s3warn) && (
                   <p className="text-xs text-red-500 mt-1.5">Marcador de set inválido según reglas de tenis.</p>
                 )}
-
-                {/* Auto winner indicator */}
                 {formWinner && (
                   <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl">
                     <TrophyIcon className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -801,7 +914,6 @@ export default function ResultsPage() {
               </div>
             )}
 
-            {/* Notes */}
             <div>
               <label className="label">Notas (opcional)</label>
               <textarea

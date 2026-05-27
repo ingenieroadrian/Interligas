@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMarkIcon, PhotoIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { toast } from '../../components/Toast';
 import { SuspensionOverlay, useActiveSuspension } from '../../components/SuspensionOverlay';
+import type { League, PlayerCategory } from '../../types/database';
 
 interface Stats {
   leagues: number;
@@ -12,7 +13,16 @@ interface Stats {
   users: number;
 }
 
-const CATEGORIES = ['12F', '12M', '14F', '14M', '16F', '16M', '18F', '18M'];
+const CATEGORIES: PlayerCategory[] = ['12F', '12M', '14F', '14M', '16F', '16M', '18F', '18M'];
+
+interface ChampionForm {
+  league_id: string;
+  category: string;
+  year_won: string;
+  logo_file: File | null;
+  logo_preview: string | null;
+  saving: boolean;
+}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ leagues: 0, players: 0, coaches: 0, users: 0 });
@@ -22,8 +32,15 @@ export default function DashboardPage() {
   const [resumeTime, setResumeTime] = useState('');
   const [suspendNote, setSuspendNote] = useState('');
   const [suspending, setSuspending] = useState(false);
-  const { user, isSuperAdmin } = useAuthStore();
   const [activeSuspension, dismissSuspension] = useActiveSuspension();
+
+  // Champion config
+  const [leagues, setLeagues] = useState<League[]>([]);
+  const [championForm, setChampionForm] = useState<ChampionForm>({
+    league_id: '', category: '', year_won: '', logo_file: null, logo_preview: null, saving: false,
+  });
+
+  const { user, isSuperAdmin } = useAuthStore();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -54,6 +71,13 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
+  useEffect(() => {
+    if (!isSuperAdmin()) return;
+    supabase.from('leagues').select('id, name').order('name').then(({ data }) => {
+      setLeagues(data || []);
+    });
+  }, [isSuperAdmin]);
+
   async function handleSuspend() {
     if (!resumeTime) return;
     setSuspending(true);
@@ -72,6 +96,46 @@ export default function DashboardPage() {
       setSuspendNote('');
     }
     setSuspending(false);
+  }
+
+  async function handleSaveChampion() {
+    const { league_id, category, year_won, logo_file } = championForm;
+    if (!league_id || !category || !year_won) {
+      toast('error', 'Completa liga, categoría y año.');
+      return;
+    }
+    setChampionForm(f => ({ ...f, saving: true }));
+
+    let logo_url: string | null = null;
+    if (logo_file) {
+      const ext = logo_file.name.split('.').pop();
+      const path = `${category}-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('champion-logos').upload(path, logo_file, { upsert: true });
+      if (uploadErr) {
+        toast('error', 'Error al subir el logo.');
+        setChampionForm(f => ({ ...f, saving: false }));
+        return;
+      }
+      const { data: urlData } = supabase.storage.from('champion-logos').getPublicUrl(path);
+      logo_url = urlData.publicUrl;
+    }
+
+    const payload: Record<string, unknown> = {
+      league_id,
+      category,
+      year_won: parseInt(year_won, 10),
+      updated_at: new Date().toISOString(),
+    };
+    if (logo_url) payload.logo_url = logo_url;
+
+    const { error } = await supabase.from('champion_config').upsert(payload, { onConflict: 'category' });
+    if (error) {
+      toast('error', 'Error al guardar campeón.');
+    } else {
+      toast('success', `Campeón defensor guardado para categoría ${category}.`);
+      setChampionForm({ league_id: '', category: '', year_won: '', logo_file: null, logo_preview: null, saving: false });
+    }
+    setChampionForm(f => ({ ...f, saving: false }));
   }
 
   const statCards = [
@@ -116,20 +180,97 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Rain suspension — super admin only */}
+      {/* Super admin controls */}
       {isSuperAdmin() && (
-        <div className="card p-5 flex items-center justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Control de Partido</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Registrar suspensión por condiciones climáticas</p>
+        <div className="space-y-4 mb-6">
+          {/* Rain suspension */}
+          <div className="card p-5 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Control de Partido</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Registrar suspensión por condiciones climáticas</p>
+            </div>
+            <button
+              onClick={() => setSuspendModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors flex-shrink-0"
+            >
+              <CloudIcon className="w-4 h-4" />
+              Suspendido por lluvia
+            </button>
           </div>
-          <button
-            onClick={() => setSuspendModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors flex-shrink-0"
-          >
-            <CloudIcon className="w-4 h-4" />
-            Suspendido por lluvia
-          </button>
+
+          {/* Champion config */}
+          <div className="card p-5">
+            <h2 className="text-sm font-semibold text-slate-900 mb-4">Campeón Defensor</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-navy-600 mb-1.5">Liga campeona</label>
+                <select
+                  className="input-field w-full text-sm"
+                  value={championForm.league_id}
+                  onChange={e => setChampionForm(f => ({ ...f, league_id: e.target.value }))}
+                >
+                  <option value="">Seleccionar liga</option>
+                  {leagues.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-navy-600 mb-1.5">Categoría</label>
+                <select
+                  className="input-field w-full text-sm"
+                  value={championForm.category}
+                  onChange={e => setChampionForm(f => ({ ...f, category: e.target.value }))}
+                >
+                  <option value="">Seleccionar</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-navy-600 mb-1.5">Año del título</label>
+                <input
+                  type="number"
+                  min="2000"
+                  max="2100"
+                  placeholder="2025"
+                  className="input-field w-full text-sm"
+                  value={championForm.year_won}
+                  onChange={e => setChampionForm(f => ({ ...f, year_won: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-navy-600 mb-1.5">Logo (PNG/JPG)</label>
+                <label className="flex items-center gap-2 cursor-pointer w-full px-3 py-2 border border-slate-200 rounded-xl bg-white hover:border-navy-300 transition-colors text-sm text-slate-500">
+                  {championForm.logo_preview ? (
+                    <img src={championForm.logo_preview} className="w-6 h-6 object-contain rounded" alt="" />
+                  ) : (
+                    <PhotoIcon className="w-4 h-4 flex-shrink-0" />
+                  )}
+                  <span className="truncate text-xs">{championForm.logo_file?.name || 'Subir logo...'}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0] || null;
+                      if (file) {
+                        const preview = URL.createObjectURL(file);
+                        setChampionForm(f => ({ ...f, logo_file: file, logo_preview: preview }));
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={handleSaveChampion}
+                disabled={championForm.saving}
+                className="flex items-center gap-2 px-4 py-2 bg-navy-700 hover:bg-navy-800 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <TrophyIcon className="w-4 h-4" />
+                {championForm.saving ? 'Guardando...' : 'Guardar campeón'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

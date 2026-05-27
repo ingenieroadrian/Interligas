@@ -43,7 +43,6 @@ interface MatchRow {
   match_status: string;
   started_at: string | null;
   finished_at: string | null;
-  court: string | null;
 }
 
 interface ConfRow {
@@ -57,7 +56,22 @@ interface ConfRow {
   homeLeagueId: string;
   awayLeagueId: string;
   court: string | null;
+  series_winner: string | null;
   matches: MatchRow[];
+}
+
+interface StandingRow {
+  league_id: string;
+  leagueName: string;
+  wins: number;
+  losses: number;
+}
+
+interface ChampionRow {
+  category: string;
+  leagueName: string;
+  year_won: number;
+  logo_url: string | null;
 }
 
 export default function PublicResultsPage() {
@@ -69,11 +83,51 @@ export default function PublicResultsPage() {
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
   const [activeSuspension, dismissSuspension] = useActiveSuspension();
 
+  // Standings state
+  const [standingsByCategory, setStandingsByCategory] = useState<Record<string, StandingRow[]>>({});
+  const [champions, setChampions] = useState<ChampionRow[]>([]);
+  const [standingsTab, setStandingsTab] = useState('');
+
+  const loadStandingsAndChampions = useCallback(async () => {
+    const [{ data: standings }, { data: champData }] = await Promise.all([
+      supabase.from('series_standings').select('category, league_id, wins, losses, leagues(name)'),
+      supabase.from('champion_config').select('category, year_won, logo_url, leagues(name)'),
+    ]);
+
+    const byCategory: Record<string, StandingRow[]> = {};
+    for (const s of (standings || [])) {
+      const cat = s.category;
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push({
+        league_id: s.league_id,
+        leagueName: (s as any).leagues?.name || '—',
+        wins: s.wins,
+        losses: s.losses,
+      });
+    }
+    // Sort each category by wins desc
+    for (const cat of Object.keys(byCategory)) {
+      byCategory[cat].sort((a, b) => b.wins - a.wins);
+    }
+    setStandingsByCategory(byCategory);
+
+    const champs: ChampionRow[] = (champData || []).map((c: any) => ({
+      category: c.category,
+      leagueName: c.leagues?.name || '—',
+      year_won: c.year_won,
+      logo_url: c.logo_url,
+    }));
+    setChampions(champs);
+
+    // Default tab
+    const cats = Object.keys(byCategory);
+    if (cats.length > 0) setStandingsTab(prev => prev && cats.includes(prev) ? prev : cats[0]);
+  }, []);
+
   const loadData = useCallback(async () => {
-    // Fetch confrontations that might have active matches
     const { data: confs } = await supabase
       .from('confrontations')
-      .select('id, category, match_date, match_time, status, home_league_id, away_league_id, home_league:leagues!confrontations_home_league_id_fkey(name), away_league:leagues!confrontations_away_league_id_fkey(name), court:courts(name)')
+      .select('id, category, match_date, match_time, status, series_winner, home_league_id, away_league_id, home_league:leagues!confrontations_home_league_id_fkey(name), away_league:leagues!confrontations_away_league_id_fkey(name), court:courts(name)')
       .in('status', ['cerrada', 'en_curso', 'finalizada'])
       .order('match_date', { ascending: false });
 
@@ -81,13 +135,32 @@ export default function PublicResultsPage() {
 
     const confIds = confs.map((c: any) => c.id);
 
-    const [{ data: rosters }, { data: players }, { data: results }] = await Promise.all([
+    const [{ data: rosters }, { data: results }] = await Promise.all([
       supabase.from('rosters').select('confrontation_id, league_id, slot_1, slot_2, slot_doubles_a, slot_doubles_b').in('confrontation_id', confIds).eq('is_submitted', true),
-      supabase.from('players').select('id, full_name'),
       supabase.from('match_results').select('confrontation_id, slot, home_player_ids, away_player_ids, set1_home, set1_away, set2_home, set2_away, set3_home, set3_away, wo, winner, match_status, started_at, finished_at').in('confrontation_id', confIds),
     ]);
 
-    const pMap = new Map((players || []).map((p: any) => [p.id as string, p.full_name as string]));
+    // Collect all player IDs and fetch names in one query
+    const allPlayerIds = new Set<string>();
+    for (const r of (rosters || [])) {
+      if (r.slot_1) allPlayerIds.add(r.slot_1);
+      if (r.slot_2) allPlayerIds.add(r.slot_2);
+      if (r.slot_doubles_a) allPlayerIds.add(r.slot_doubles_a);
+      if (r.slot_doubles_b) allPlayerIds.add(r.slot_doubles_b);
+    }
+    for (const r of (results || [])) {
+      for (const id of (r.home_player_ids || [])) allPlayerIds.add(id);
+      for (const id of (r.away_player_ids || [])) allPlayerIds.add(id);
+    }
+
+    const pMap = new Map<string, string>();
+    if (allPlayerIds.size > 0) {
+      const { data: players } = await supabase
+        .from('players')
+        .select('id, full_name')
+        .in('id', Array.from(allPlayerIds));
+      for (const p of (players || [])) pMap.set(p.id, p.full_name);
+    }
     setPlayerMap(pMap);
 
     const rows: ConfRow[] = confs.map((conf: any) => {
@@ -125,7 +198,6 @@ export default function PublicResultsPage() {
           match_status: r?.match_status || 'pending',
           started_at: r?.started_at || null,
           finished_at: r?.finished_at || null,
-          court: null, // no per-slot court in public view; conf.court is shown in header
         };
       });
 
@@ -140,11 +212,11 @@ export default function PublicResultsPage() {
         homeName: (conf.home_league as any)?.name || '—',
         awayName: (conf.away_league as any)?.name || '—',
         court: (conf.court as any)?.name || null,
+        series_winner: conf.series_winner || null,
         matches,
       };
     });
 
-    // Only show confrontations that have at least one match in progress or finished
     const visible = rows.filter(c =>
       c.matches.some(m => m.match_status === 'in_progress' || m.match_status === 'finished')
     );
@@ -153,14 +225,13 @@ export default function PublicResultsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); loadStandingsAndChampions(); }, [loadData, loadStandingsAndChampions]);
 
   useEffect(() => {
-    const id = setInterval(loadData, 30000);
+    const id = setInterval(() => { loadData(); loadStandingsAndChampions(); }, 30000);
     return () => clearInterval(id);
-  }, [loadData]);
+  }, [loadData, loadStandingsAndChampions]);
 
-  // Elapsed ticker (seconds since started_at for in_progress)
   useEffect(() => {
     const interval = setInterval(() => {
       const next: Record<string, number> = {};
@@ -177,7 +248,19 @@ export default function PublicResultsPage() {
   }, [confrontations]);
 
   function pName(ids: string[]): string {
-    return ids.map(id => playerMap.get(id) || '').filter(Boolean).join(' / ') || 'Sin asignar';
+    return ids.map(id => playerMap.get(id) || '').filter(Boolean).join(' / ') || 'Jugador';
+  }
+
+  // Series winner label for a finished confrontation
+  function seriesScore(conf: ConfRow): string | null {
+    if (conf.status !== 'finalizada') return null;
+    let homeWins = 0, awayWins = 0;
+    for (const m of conf.matches) {
+      if (m.winner === 'home') homeWins++;
+      else if (m.winner === 'away') awayWins++;
+    }
+    if (homeWins === 0 && awayWins === 0) return null;
+    return `${conf.homeName} ${homeWins} — ${awayWins} ${conf.awayName}`;
   }
 
   const filtered = confrontations.filter(c => {
@@ -187,10 +270,12 @@ export default function PublicResultsPage() {
   });
 
   const dates = Array.from(new Set(confrontations.map(c => c.match_date))).sort().reverse();
+  const standingsCats = Object.keys(standingsByCategory).sort();
+  const activeChampion = champions.find(c => c.category === standingsTab);
+  const activeStandings = standingsByCategory[standingsTab] || [];
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Suspension overlay — no close button for public */}
       {activeSuspension && (
         <SuspensionOverlay suspension={activeSuspension} canClose={false} onClose={dismissSuspension} />
       )}
@@ -208,6 +293,119 @@ export default function PublicResultsPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+        {/* Standings + Champion section */}
+        {standingsCats.length > 0 && (
+          <div className="card overflow-hidden">
+            {/* Category tabs */}
+            {standingsCats.length > 1 && (
+              <div className="flex border-b border-slate-100 bg-slate-50 overflow-x-auto">
+                {standingsCats.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setStandingsTab(cat)}
+                    className={`px-4 py-2.5 text-xs font-semibold flex-shrink-0 transition-colors border-b-2 ${
+                      standingsTab === cat
+                        ? 'border-navy-700 text-navy-800 bg-white'
+                        : 'border-transparent text-slate-500 hover:text-navy-700'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
+              {/* Defending champion */}
+              {activeChampion ? (
+                <div className="flex items-center gap-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  {activeChampion.logo_url ? (
+                    <img src={activeChampion.logo_url} alt="logo" className="w-14 h-14 object-contain rounded-lg flex-shrink-0" />
+                  ) : (
+                    <div className="w-14 h-14 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <TrophyIcon className="w-7 h-7 text-amber-600" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-0.5">Campeón Defensor</p>
+                    <p className="font-bold text-navy-900 text-sm leading-tight truncate">{activeChampion.leagueName}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Campeón defensor {activeChampion.year_won}</p>
+                    <span className="inline-block mt-1 text-xs font-bold px-2 py-0.5 bg-navy-100 text-navy-700 rounded-md">{activeChampion.category}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <div className="w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <TrophyIcon className="w-7 h-7 text-slate-300" />
+                  </div>
+                  <p className="text-sm text-slate-400">Sin campeón defensor registrado para {standingsTab}</p>
+                </div>
+              )}
+
+              {/* Race to the title */}
+              <div>
+                <p className="text-xs font-bold text-navy-700 uppercase tracking-wider mb-3">
+                  Carrera por el título — {standingsTab}
+                </p>
+                {activeStandings.length === 0 ? (
+                  <p className="text-xs text-slate-400">Sin datos aún.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(() => {
+                      const maxWins = Math.max(...activeStandings.map(s => s.wins), 1);
+                      return activeStandings.map(s => (
+                        <div key={s.league_id}>
+                          <div className="flex items-center justify-between text-xs mb-0.5">
+                            <span className="font-medium text-navy-700 truncate max-w-[70%]">{s.leagueName}</span>
+                            <span className="font-bold text-navy-900 flex-shrink-0 ml-2">{s.wins}V {s.losses}D</span>
+                          </div>
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-navy-700 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round((s.wins / maxWins) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Standings table */}
+            {activeStandings.length > 0 && (
+              <div className="border-t border-slate-100">
+                <div className="px-5 py-3 bg-slate-50">
+                  <p className="text-xs font-bold text-navy-700 uppercase tracking-wider">Tabla de Posiciones — {standingsTab}</p>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="text-left px-5 py-2 text-xs font-semibold text-slate-500">Liga</th>
+                      <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 w-16">G</th>
+                      <th className="text-center px-3 py-2 text-xs font-semibold text-slate-500 w-16">P</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeStandings.map((s, i) => (
+                      <tr key={s.league_id} className={`border-b border-slate-50 ${i === 0 ? 'bg-amber-50/50' : ''}`}>
+                        <td className="px-5 py-2.5 font-medium text-navy-800">
+                          {i === 0 && <TrophyIcon className="w-3.5 h-3.5 text-amber-500 inline mr-1.5 -mt-0.5" />}
+                          {s.leagueName}
+                        </td>
+                        <td className="text-center px-3 py-2.5 font-bold text-navy-900">{s.wins}</td>
+                        <td className="text-center px-3 py-2.5 text-slate-500">{s.losses}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Filters */}
         <div className="flex flex-wrap gap-3">
           <select className="input-field w-auto text-sm" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="">Todas las categorías</option>
@@ -235,14 +433,21 @@ export default function PublicResultsPage() {
           </div>
         ) : filtered.map(conf => {
           const isLive = conf.status === 'en_curso';
+          const isFinished = conf.status === 'finalizada';
+          const score = seriesScore(conf);
           return (
             <div key={conf.id} className={`card overflow-hidden ${isLive ? 'ring-1 ring-green-300' : ''}`}>
               <div className={`px-5 py-3 flex items-center justify-between gap-3 border-b ${isLive ? 'bg-green-50 border-green-100' : 'bg-slate-50 border-slate-100'}`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-bold px-2 py-0.5 bg-navy-100 text-navy-700 rounded-md flex-shrink-0">{conf.category}</span>
-                  <span className="font-semibold text-navy-800 text-sm truncate">
-                    {conf.homeName} <span className="text-navy-400 font-normal">vs</span> {conf.awayName}
-                  </span>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold px-2 py-0.5 bg-navy-100 text-navy-700 rounded-md flex-shrink-0">{conf.category}</span>
+                    <span className="font-semibold text-navy-800 text-sm truncate">
+                      {conf.homeName} <span className="text-navy-400 font-normal">vs</span> {conf.awayName}
+                    </span>
+                  </div>
+                  {score && isFinished && (
+                    <p className="text-xs text-navy-500 font-medium pl-0.5">{score}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 text-xs text-navy-500">
                   {conf.court && (
@@ -272,7 +477,6 @@ export default function PublicResultsPage() {
                   const mInProgress = m.match_status === 'in_progress';
                   const mFinished = m.match_status === 'finished';
 
-                  // Duration for finished matches
                   const durationSecs = (mFinished && m.started_at && m.finished_at)
                     ? Math.floor((new Date(m.finished_at).getTime() - new Date(m.started_at).getTime()) / 1000)
                     : null;
@@ -285,7 +489,6 @@ export default function PublicResultsPage() {
 
                   return (
                     <div key={m.slot} className="px-5 py-3">
-                      {/* Slot header with court */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-navy-500 uppercase tracking-wide">{SLOT_LABELS[m.slot]}</span>
