@@ -320,7 +320,7 @@ export default function DashboardPage() {
         <SuspensionOverlay
           suspension={activeSuspension}
           canClose={isSuperAdmin()}
-          onClose={() => { dismissSuspension(); }}
+          onClose={() => {dismissSuspension}
         />
       )}
 
