@@ -233,17 +233,23 @@ export default function PublicResultsPage() {
   }, [loadData, loadStandingsAndChampions]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    function compute() {
       const next: Record<string, number> = {};
       confrontations.forEach(conf => {
         conf.matches.forEach(m => {
-          if (m.match_status === 'in_progress' && m.started_at) {
-            next[`${conf.id}-${m.slot}`] = Math.floor((Date.now() - new Date(m.started_at).getTime()) / 1000);
+          if (m.started_at) {
+            if (m.match_status === 'in_progress') {
+              next[`${conf.id}-${m.slot}`] = Math.floor((Date.now() - new Date(m.started_at).getTime()) / 1000);
+            } else if (m.match_status === 'finished' && m.finished_at) {
+              next[`${conf.id}-${m.slot}`] = Math.floor((new Date(m.finished_at).getTime() - new Date(m.started_at).getTime()) / 1000);
+            }
           }
         });
       });
       setElapsedTimes(next);
-    }, 1000);
+    }
+    compute();
+    const interval = setInterval(compute, 1000);
     return () => clearInterval(interval);
   }, [confrontations]);
 
@@ -277,7 +283,7 @@ export default function PublicResultsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       {activeSuspension && (
-        <SuspensionOverlay suspension={activeSuspension} canClose={false} onClose={dismissSuspension} />
+        <SuspensionOverlay suspension={activeSuspension} canClose={false} onClose={() => { dismissSuspension(); }} />
       )}
 
       <header className="bg-navy-900 px-6 py-5">

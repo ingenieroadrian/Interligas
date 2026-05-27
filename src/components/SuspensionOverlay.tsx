@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { CloudIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { useEffect, useState } from 'react';
+import { CloudIcon, XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
 import { toast } from './Toast';
 
@@ -41,29 +41,14 @@ function fmtCountdown(secs: number): string {
 export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   const [remaining, setRemaining] = useState(() => calcRemaining(suspension.resume_time));
   const [closing, setClosing] = useState(false);
-  const autoClosedRef = useRef(false);
+  const isResumeReached = remaining <= 0;
 
   useEffect(() => {
     const id = setInterval(() => {
-      const secs = calcRemaining(suspension.resume_time);
-      setRemaining(secs);
-
-      // Auto-cancel when countdown reaches zero
-      if (secs <= 0 && !autoClosedRef.current) {
-        autoClosedRef.current = true;
-        clearInterval(id);
-        supabase
-          .from('match_suspensions')
-          .update({ cancelled_at: new Date().toISOString() })
-          .eq('id', suspension.id)
-          .then(() => {
-            toast('success', 'Hora de reinicio alcanzada. Suspensión finalizada.');
-            onClose();
-          });
-      }
+      setRemaining(calcRemaining(suspension.resume_time));
     }, 1000);
     return () => clearInterval(id);
-  }, [suspension.id, suspension.resume_time, onClose]);
+  }, [suspension.resume_time]);
 
   async function handleClose() {
     setClosing(true);
@@ -72,7 +57,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
       .update({ cancelled_at: new Date().toISOString() })
       .eq('id', suspension.id);
     if (error) {
-      toast('error', 'No se pudo cerrar la suspensión. Intenta nuevamente.');
+      toast('error', 'No se pudo levantar la suspensión. Intenta nuevamente.');
       setClosing(false);
       return;
     }
@@ -88,7 +73,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
           className="absolute top-5 right-5 flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-medium transition-colors disabled:opacity-50"
         >
           <XMarkIcon className="w-4 h-4" />
-          {closing ? 'Cerrando...' : 'Cerrar'}
+          {closing ? 'Levantando...' : 'Levantar suspensión'}
         </button>
       )}
 
@@ -114,18 +99,30 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
       </div>
 
       <div className="text-center mt-8">
-        <p className="text-3xl sm:text-4xl font-mono font-bold text-blue-300 tabular-nums">
-          {fmtCountdown(remaining)}
-        </p>
-        <p className="text-slate-500 text-xs mt-2 uppercase tracking-widest">Tiempo restante para el reinicio</p>
+        {isResumeReached ? (
+          <>
+            <div className="flex items-center justify-center gap-2 text-green-400 mb-2">
+              <CheckCircleIcon className="w-6 h-6" />
+              <p className="text-xl font-bold uppercase tracking-widest">Hora de reinicio alcanzada</p>
+            </div>
+            <p className="text-slate-400 text-sm uppercase tracking-widest">En espera del reinicio oficial</p>
+          </>
+        ) : (
+          <>
+            <p className="text-3xl sm:text-4xl font-mono font-bold text-blue-300 tabular-nums">
+              {fmtCountdown(remaining)}
+            </p>
+            <p className="text-slate-500 text-xs mt-2 uppercase tracking-widest">Tiempo restante para el reinicio</p>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-// Hook — returns [activeSuspension, dismissFn]
-// dismissFn immediately hides the overlay by setting state to null (no page reload)
-export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => void] {
+// Hook — returns [activeSuspension, liftFn]
+// liftFn writes cancelled_at to DB and hides the overlay
+export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => Promise<void>] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
   useEffect(() => {
@@ -147,7 +144,16 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
     return () => clearInterval(id);
   }, []);
 
-  const dismiss = () => setSuspension(null);
+  const lift = async () => {
+    const current = suspension;
+    setSuspension(null);
+    if (current) {
+      await supabase
+        .from('match_suspensions')
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq('id', current.id);
+    }
+  };
 
-  return [suspension, dismiss];
+  return [suspension, lift];
 }

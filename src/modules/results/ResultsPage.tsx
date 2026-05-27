@@ -10,9 +10,11 @@ import {
   CheckCircleIcon,
   PlayIcon,
   MapPinIcon,
+  Squares2X2Icon,
+  ListBulletIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
-import type { Confrontation, Roster, Player, RosterSlot, MatchResult, MatchWinner } from '../../types/database';
+import type { Confrontation, Court, Roster, Player, RosterSlot, MatchResult, MatchWinner } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import Modal from '../../components/Modal';
 import SearchInput from '../../components/SearchInput';
@@ -127,6 +129,158 @@ interface ChampionRow {
   logo_url: string | null;
 }
 
+const SLOT_ORDER: RosterSlot[] = ['partido_1', 'partido_2', 'dobles'];
+
+interface CourtGridProps {
+  confrontations: ConfrontationRow[];
+  courts: Court[];
+}
+
+function CourtGridView({ confrontations, courts }: CourtGridProps) {
+  // Build a map: courtName -> slot -> list of matches in that cell
+  const grid: Record<string, Record<RosterSlot, { conf: ConfrontationRow; match: MatchVS }[]>> = {};
+
+  for (const court of courts) {
+    grid[court.name] = { partido_1: [], partido_2: [], dobles: [] };
+  }
+
+  // Also collect courts mentioned in matches but not in the active courts list
+  const extraCourts = new Set<string>();
+  for (const conf of confrontations) {
+    for (const match of conf.matches) {
+      if (match.court && !grid[match.court]) {
+        extraCourts.add(match.court);
+      }
+    }
+  }
+  for (const courtName of extraCourts) {
+    grid[courtName] = { partido_1: [], partido_2: [], dobles: [] };
+  }
+
+  for (const conf of confrontations) {
+    for (const match of conf.matches) {
+      const courtName = match.court;
+      if (courtName && grid[courtName]) {
+        grid[courtName][match.slot].push({ conf, match });
+      }
+    }
+  }
+
+  const allCourtNames = [
+    ...courts.map(c => c.name),
+    ...Array.from(extraCourts),
+  ];
+
+  const matchStatusColors: Record<string, string> = {
+    in_progress: 'bg-green-50 border-green-200',
+    finished: 'bg-slate-50 border-slate-200',
+    pending: 'bg-white border-slate-200',
+  };
+
+  const matchStatusBadge: Record<string, string> = {
+    in_progress: 'bg-green-100 text-green-700',
+    finished: 'bg-emerald-100 text-emerald-700',
+    pending: 'bg-slate-100 text-slate-500',
+  };
+
+  const matchStatusLabel: Record<string, string> = {
+    in_progress: 'En curso',
+    finished: 'Finalizado',
+    pending: 'Pendiente',
+  };
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm min-w-[600px]">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-28 border-r border-slate-200">
+                Partido
+              </th>
+              {allCourtNames.map(courtName => (
+                <th key={courtName} className="text-center px-3 py-3 text-xs font-bold text-navy-700 uppercase tracking-wider border-r border-slate-200 last:border-r-0 min-w-[160px]">
+                  {courtName}
+                </th>
+              ))}
+              {allCourtNames.length === 0 && (
+                <th className="text-center px-4 py-3 text-xs text-slate-400">Sin canchas configuradas</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {SLOT_ORDER.map((slot, idx) => (
+              <tr key={slot} className={idx < SLOT_ORDER.length - 1 ? 'border-b border-slate-100' : ''}>
+                <td className="px-4 py-3 font-semibold text-xs text-navy-600 uppercase tracking-wide align-top border-r border-slate-200 whitespace-nowrap">
+                  {SLOT_LABELS[slot]}
+                </td>
+                {allCourtNames.map(courtName => {
+                  const cells = grid[courtName]?.[slot] || [];
+                  return (
+                    <td key={courtName} className="px-2 py-2 align-top border-r border-slate-100 last:border-r-0">
+                      {cells.length === 0 ? (
+                        <div className="h-16 rounded-lg bg-slate-50/50 border border-dashed border-slate-200" />
+                      ) : (
+                        <div className="space-y-1.5">
+                          {cells.map(({ conf, match }) => {
+                            const status = match.result?.match_status || 'pending';
+                            const homeScore = match.result?.winner === 'home' ? '✓' : '';
+                            const awayScore = match.result?.winner === 'away' ? '✓' : '';
+                            const sets = [
+                              { h: match.result?.set1_home, a: match.result?.set1_away },
+                              { h: match.result?.set2_home, a: match.result?.set2_away },
+                              { h: match.result?.set3_home, a: match.result?.set3_away },
+                            ].filter(s => s.h != null || s.a != null);
+                            const scoreStr = sets.map(s => `${s.h ?? 0}-${s.a ?? 0}`).join('  ');
+
+                            return (
+                              <div
+                                key={`${conf.id}-${match.slot}`}
+                                className={`rounded-lg border p-2 text-xs ${matchStatusColors[status] || 'bg-white border-slate-200'}`}
+                              >
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span className="font-bold text-navy-700 text-[10px] uppercase tracking-wide truncate">{conf.category}</span>
+                                  <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${matchStatusBadge[status] || 'bg-slate-100 text-slate-500'}`}>
+                                    {matchStatusLabel[status] || status}
+                                  </span>
+                                </div>
+                                <div className="space-y-0.5">
+                                  <div className={`flex items-center justify-between gap-1 ${match.result?.winner === 'home' ? 'font-semibold text-navy-900' : 'text-navy-600'}`}>
+                                    <span className="truncate text-[11px]">{conf.home_league?.name || 'Local'}</span>
+                                    {homeScore && <span className="text-emerald-600 flex-shrink-0">{homeScore}</span>}
+                                  </div>
+                                  <div className={`flex items-center justify-between gap-1 ${match.result?.winner === 'away' ? 'font-semibold text-navy-900' : 'text-navy-600'}`}>
+                                    <span className="truncate text-[11px]">{conf.away_league?.name || 'Visitante'}</span>
+                                    {awayScore && <span className="text-emerald-600 flex-shrink-0">{awayScore}</span>}
+                                  </div>
+                                </div>
+                                {scoreStr && (
+                                  <p className="mt-1 text-[10px] font-mono text-slate-500 text-center">{scoreStr}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {allCourtNames.length === 0 && (
+        <div className="py-10 text-center text-slate-400 text-sm">
+          <MapPinIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p>No hay canchas activas configuradas.</p>
+          <p className="text-xs mt-1 text-slate-300">Configura las canchas desde el módulo de Administración.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResultsPage() {
   const [confrontations, setConfrontations] = useState<ConfrontationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,6 +292,8 @@ export default function ResultsPage() {
   const [starting, setStarting] = useState<string | null>(null);
   const [finishing, setFinishing] = useState<string | null>(null);
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [courts, setCourts] = useState<Court[]>([]);
 
   // Standings
   const [standingsByCategory, setStandingsByCategory] = useState<Record<string, StandingRow[]>>({});
@@ -261,6 +417,12 @@ export default function ResultsPage() {
   }, [search]);
 
   useEffect(() => { loadData(); loadStandings(); }, [loadData, loadStandings]);
+
+  useEffect(() => {
+    supabase.from('courts').select('*').eq('active', true).order('name').then(({ data }) => {
+      setCourts(data || []);
+    });
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -622,6 +784,26 @@ export default function ResultsPage() {
           <h1 className="text-xl font-bold text-navy-900">Resultados</h1>
           <p className="text-sm text-navy-500 mt-0.5">Hoja de resultados por enfrentamiento</p>
         </div>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 self-start sm:self-auto">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              viewMode === 'list' ? 'bg-white text-navy-800 shadow-sm' : 'text-slate-500 hover:text-navy-700'
+            }`}
+          >
+            <ListBulletIcon className="w-4 h-4" />
+            Lista
+          </button>
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              viewMode === 'grid' ? 'bg-white text-navy-800 shadow-sm' : 'text-slate-500 hover:text-navy-700'
+            }`}
+          >
+            <Squares2X2Icon className="w-4 h-4" />
+            Canchas
+          </button>
+        </div>
       </div>
 
       <SearchInput value={search} onChange={v => setSearch(v)} placeholder="Buscar por liga o categoría..." />
@@ -744,6 +926,8 @@ export default function ResultsPage() {
           <p>No hay enfrentamientos listos para resultados.</p>
           <p className="text-xs mt-1 text-navy-300">Los enfrentamientos aparecen aquí cuando ambas nóminas han sido enviadas.</p>
         </div>
+      ) : viewMode === 'grid' ? (
+        <CourtGridView confrontations={confrontations} courts={courts} />
       ) : (
         <div className="space-y-4">
           {confrontations.map(conf => {

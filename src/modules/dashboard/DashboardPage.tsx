@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMarkIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMarkIcon, PhotoIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { toast } from '../../components/Toast';
@@ -184,18 +184,33 @@ export default function DashboardPage() {
       {isSuperAdmin() && (
         <div className="space-y-4 mb-6">
           {/* Rain suspension */}
-          <div className="card p-5 flex items-center justify-between gap-4">
+          <div className="card p-5 flex items-center justify-between gap-4 flex-wrap">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Control de Partido</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Registrar suspensión por condiciones climáticas</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {activeSuspension
+                  ? 'Suspensión activa — puedes levantarla cuando los partidos se reanuden'
+                  : 'Registrar suspensión por condiciones climáticas'}
+              </p>
             </div>
-            <button
-              onClick={() => setSuspendModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors flex-shrink-0"
-            >
-              <CloudIcon className="w-4 h-4" />
-              Suspendido por lluvia
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {activeSuspension && (
+                <button
+                  onClick={() => dismissSuspension()}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl transition-colors"
+                >
+                  <CheckCircleIcon className="w-4 h-4" />
+                  Levantar suspensión
+                </button>
+              )}
+              <button
+                onClick={() => setSuspendModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                <CloudIcon className="w-4 h-4" />
+                Suspender por lluvia
+              </button>
+            </div>
           </div>
 
           {/* Champion config */}
@@ -305,7 +320,7 @@ export default function DashboardPage() {
         <SuspensionOverlay
           suspension={activeSuspension}
           canClose={isSuperAdmin()}
-          onClose={dismissSuspension}
+          onClose={() => { dismissSuspension(); }}
         />
       )}
 
