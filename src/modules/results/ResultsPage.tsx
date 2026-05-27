@@ -241,7 +241,7 @@ export default function ResultsPage() {
         const result = confResults.find(r => r.slot === slot) || null;
         const homeCourt = homeRoster ? courtMap.get(`${homeRoster.id}-${slot}`) || null : null;
         const awayCourt = awayRoster ? courtMap.get(`${awayRoster.id}-${slot}`) || null : null;
-        const court = homeCourt || awayCourt;
+        const court = homeCourt || awayCourt || conf.court?.name || null;
         return { slot, homePlayers, awayPlayers, result, court };
       });
 
