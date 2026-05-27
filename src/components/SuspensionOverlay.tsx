@@ -46,7 +46,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   useEffect(() => {
     const id = setInterval(() => {
       setRemaining(calcRemaining(suspension.resume_time));
-    }, 2000);
+    }, 1000);
     return () => clearInterval(id);
   }, [suspension.resume_time]);
 
