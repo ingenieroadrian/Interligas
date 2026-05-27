@@ -52,18 +52,15 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
 
   useEffect(() => {
     if (remaining > 0) return;
-    const timer = setTimeout(async () => {
-      await supabase
-        .from('match_suspensions')
-        .update({ cancelled_at: new Date().toISOString() })
-        .eq('id', suspension.id);
-      onClose();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [remaining]); // eslint-disable-line react-hooks/exhaustive-deps
+    onClose();
+    supabase
+      .from('match_suspensions')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('id', suspension.id);
+  }, [remaining]); 
 
   async function handleClose() {
-    setClosing(true);
+    setClosing(true)
     const { error } = await supabase
       .from('match_suspensions')
       .update({ cancelled_at: new Date().toISOString() })
