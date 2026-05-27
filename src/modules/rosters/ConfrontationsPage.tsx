@@ -9,9 +9,10 @@ import {
   ClockIcon,
   CheckCircleIcon,
   ClipboardDocumentListIcon,
+  MapPinIcon,
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
-import type { Confrontation, League, PlayerCategory, ConfrontationStatus } from '../../types/database';
+import type { Confrontation, League, PlayerCategory, ConfrontationStatus, Court } from '../../types/database';
 import { useAuthStore } from '../../store/authStore';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -45,6 +46,7 @@ interface ConfrontationForm {
   away_league_id: string;
   match_date: string;
   match_time: string;
+  court_id: string;
 }
 
 const EMPTY_FORM: ConfrontationForm = {
@@ -53,6 +55,7 @@ const EMPTY_FORM: ConfrontationForm = {
   away_league_id: '',
   match_date: '',
   match_time: '',
+  court_id: '',
 };
 
 function computeDeadline(date: string, time: string): string | null {
@@ -70,6 +73,7 @@ function formatDeadline(iso: string): string {
 export default function ConfrontationsPage() {
   const [confrontations, setConfrontations] = useState<Confrontation[]>([]);
   const [leagues, setLeagues] = useState<League[]>([]);
+  const [courts, setCourts] = useState<Court[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -89,15 +93,19 @@ export default function ConfrontationsPage() {
   const canDelete = isSuperAdmin() || hasPermission('rosters', 'delete');
 
   const loadLeagues = useCallback(async () => {
-    const { data } = await supabase.from('leagues').select('id, name').order('name');
-    setLeagues(data || []);
+    const [{ data: leaguesData }, { data: courtsData }] = await Promise.all([
+      supabase.from('leagues').select('id, name').order('name'),
+      supabase.from('courts').select('id, name').eq('active', true).order('name'),
+    ]);
+    setLeagues(leaguesData || []);
+    setCourts(courtsData || []);
   }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     let query = supabase
       .from('confrontations')
-      .select('*, home_league:leagues!confrontations_home_league_id_fkey(id,name,city,representative,email,created_at), away_league:leagues!confrontations_away_league_id_fkey(id,name,city,representative,email,created_at)', { count: 'exact' })
+      .select('*, home_league:leagues!confrontations_home_league_id_fkey(id,name,city,representative,email,created_at), away_league:leagues!confrontations_away_league_id_fkey(id,name,city,representative,email,created_at), court:courts(id,name,active,created_at)', { count: 'exact' })
       .order('match_date', { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
@@ -144,6 +152,7 @@ export default function ConfrontationsPage() {
       away_league_id: c.away_league_id,
       match_date: c.match_date,
       match_time: c.match_time,
+      court_id: c.court_id || '',
     });
     setErrors({});
     setModalOpen(true);
@@ -153,6 +162,7 @@ export default function ConfrontationsPage() {
     if (!validate()) return;
     setSaving(true);
     const deadline = computeDeadline(form.match_date, form.match_time)!;
+    const courtIdVal = form.court_id || null;
 
     if (editing) {
       const { error } = await supabase
@@ -164,11 +174,12 @@ export default function ConfrontationsPage() {
           match_date: form.match_date,
           match_time: form.match_time,
           deadline,
+          court_id: courtIdVal,
         })
         .eq('id', editing.id);
 
-      if (error) { toast(error.message, 'error'); }
-      else { toast('Enfrentamiento actualizado.', 'success'); setModalOpen(false); loadData(); }
+      if (error) { toast('error', error.message); }
+      else { toast('success', 'Enfrentamiento actualizado.'); setModalOpen(false); loadData(); }
     } else {
       const { error } = await supabase
         .from('confrontations')
@@ -181,10 +192,11 @@ export default function ConfrontationsPage() {
           deadline,
           status: 'programada' as ConfrontationStatus,
           created_by: user?.id || null,
+          court_id: courtIdVal,
         });
 
-      if (error) { toast(error.message, 'error'); }
-      else { toast('Enfrentamiento creado.', 'success'); setModalOpen(false); loadData(); }
+      if (error) { toast('error', error.message); }
+      else { toast('success', 'Enfrentamiento creado.'); setModalOpen(false); loadData(); }
     }
     setSaving(false);
   }
@@ -192,8 +204,8 @@ export default function ConfrontationsPage() {
   async function handleDelete() {
     if (!deleteTarget) return;
     const { error } = await supabase.from('confrontations').delete().eq('id', deleteTarget.id);
-    if (error) toast(error.message, 'error');
-    else { toast('Enfrentamiento eliminado.', 'success'); loadData(); }
+    if (error) toast('error', error.message);
+    else { toast('success', 'Enfrentamiento eliminado.'); loadData(); }
     setDeleteTarget(null);
   }
 
@@ -203,8 +215,8 @@ export default function ConfrontationsPage() {
       .from('confrontations')
       .update({ status: 'alineacion' })
       .eq('id', c.id);
-    if (error) toast(error.message, 'error');
-    else { toast('Enfrentamiento activado para alineación.', 'success'); loadData(); }
+    if (error) toast('error', error.message);
+    else { toast('success', 'Enfrentamiento activado para alineación.'); loadData(); }
   }
 
   const deadline = computeDeadline(form.match_date, form.match_time);
@@ -240,7 +252,7 @@ export default function ConfrontationsPage() {
                 <th className="table-header">Liga Local</th>
                 <th className="table-header">Liga Visitante</th>
                 <th className="table-header">Fecha</th>
-                <th className="table-header">Plazo</th>
+                <th className="table-header hidden lg:table-cell">Cancha</th>
                 <th className="table-header">Estado</th>
                 <th className="table-header text-right">Acciones</th>
               </tr>
@@ -265,11 +277,15 @@ export default function ConfrontationsPage() {
                       {new Date(`${c.match_date}T${c.match_time}`).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </td>
-                  <td className="table-cell text-navy-500 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <ClockIcon className="w-3.5 h-3.5 text-navy-400" />
-                      {formatDeadline(c.deadline)}
-                    </div>
+                  <td className="table-cell hidden lg:table-cell text-navy-600 text-xs">
+                    {c.court ? (
+                      <div className="flex items-center gap-1">
+                        <MapPinIcon className="w-3 h-3 text-navy-400" />
+                        {c.court.name}
+                      </div>
+                    ) : (
+                      <span className="text-navy-300">—</span>
+                    )}
                   </td>
                   <td className="table-cell">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[c.status]}`}>
@@ -414,6 +430,19 @@ export default function ConfrontationsPage() {
               />
               {errors.match_time && <p className="text-xs text-red-600 mt-1">{errors.match_time}</p>}
             </div>
+          </div>
+
+          {/* Court */}
+          <div>
+            <label className="label">Cancha</label>
+            <select
+              className="input-field"
+              value={form.court_id}
+              onChange={e => setForm(f => ({ ...f, court_id: e.target.value }))}
+            >
+              <option value="">Sin cancha asignada</option>
+              {courts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
 
           {/* Deadline preview */}

@@ -18,6 +18,7 @@ import PaymentConfigPage from './modules/admin/PaymentConfigPage';
 import ConfrontationsPage from './modules/rosters/ConfrontationsPage';
 import RosterPage from './modules/rosters/RosterPage';
 import ResultsPage from './modules/results/ResultsPage';
+import CanchasPage from './modules/admin/CanchasPage';
 
 function AppRoutes() {
   const { user, initialized, isInactiveCoach } = useAuthStore();
@@ -140,6 +141,15 @@ function AppRoutes() {
           : <RouteGuard module="results" action="view">
               <Layout>
                 <ResultsPage />
+              </Layout>
+            </RouteGuard>
+      } />
+      <Route path="/canchas" element={
+        coachBlocked
+          ? <Navigate to="/acceso-bloqueado" replace />
+          : <RouteGuard superAdminOnly>
+              <Layout>
+                <CanchasPage />
               </Layout>
             </RouteGuard>
       } />

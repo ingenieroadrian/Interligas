@@ -104,6 +104,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   isInactiveCoach: () => {
     const { role, coachProfile } = get();
-    return role?.name === 'Entrenador' && coachProfile !== null && !coachProfile.active;
+    return role?.name === 'Entrenador' && (coachProfile === null || !coachProfile.active);
   },
 }));

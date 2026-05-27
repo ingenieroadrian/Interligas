@@ -444,11 +444,11 @@ export default function RosterPage() {
   async function handleSave(submit: boolean) {
     if (!confrontationId || !coachId) return;
     if (submit && !allFilled) {
-      toast('Completa los 4 slots antes de enviar la nómina.', 'error');
+      toast('error', 'Completa los 4 slots antes de enviar la nómina.');
       return;
     }
     if (submit && validationErrors.length > 0) {
-      toast('Corrige los errores antes de enviar la nómina.', 'error');
+      toast('error', 'Corrige los errores antes de enviar la nómina.');
       return;
     }
 
@@ -488,9 +488,9 @@ export default function RosterPage() {
     }
 
     if (error) {
-      toast(`Error al guardar: ${error.message}`, 'error');
+      toast('error', `Error al guardar: ${error.message}`);
     } else {
-      toast(submit ? 'Nómina enviada exitosamente.' : 'Borrador guardado.', 'success');
+      toast('success', submit ? 'Nómina enviada exitosamente.' : 'Borrador guardado.');
       if (submit) {
         loadData();
         if (confrontationId) await maybeCloseConfrontation(confrontationId);
@@ -526,7 +526,7 @@ export default function RosterPage() {
 
   async function handleAdminSave(side: RosterSlotState, submit: boolean) {
     if (!confrontationId || !side.coachId || !side.leagueId) {
-      toast('No hay entrenador activo para esta liga.', 'error');
+      toast('error', 'No hay entrenador activo para esta liga.');
       return;
     }
 
@@ -560,9 +560,9 @@ export default function RosterPage() {
     }
 
     if (error) {
-      toast(`Error al guardar: ${error.message}`, 'error');
+      toast('error', `Error al guardar: ${error.message}`);
     } else {
-      toast(submit ? 'Nómina guardada y marcada como enviada.' : 'Borrador guardado.', 'success');
+      toast('success', submit ? 'Nómina guardada y marcada como enviada.' : 'Borrador guardado.');
       if (confrontation) {
         await loadAdminData(confrontation);
         if (submit) await maybeCloseConfrontation(confrontation.id);

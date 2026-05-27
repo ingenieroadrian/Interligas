@@ -81,6 +81,13 @@ export interface PaymentConfig {
   updated_by: string | null;
 }
 
+export interface Court {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
 export interface Confrontation {
   id: string;
   category: PlayerCategory;
@@ -90,10 +97,12 @@ export interface Confrontation {
   match_time: string;
   deadline: string;
   status: ConfrontationStatus;
+  court_id: string | null;
   created_by: string | null;
   created_at: string;
   home_league?: League;
   away_league?: League;
+  court?: Court;
 }
 
 export interface Roster {
@@ -125,6 +134,7 @@ export interface MatchAssignment {
 }
 
 export type MatchWinner = 'home' | 'away';
+export type MatchStatus = 'pending' | 'in_progress' | 'finished';
 
 export interface MatchResult {
   id: string;
@@ -134,7 +144,17 @@ export interface MatchResult {
   away_player_ids: string[];
   home_score: string;
   away_score: string;
+  set1_home: number | null;
+  set1_away: number | null;
+  set2_home: number | null;
+  set2_away: number | null;
+  set3_home: number | null;
+  set3_away: number | null;
+  wo: boolean;
+  wo_winner: MatchWinner | null;
   winner: MatchWinner | null;
+  match_status: MatchStatus;
+  started_at: string | null;
   notes: string;
   recorded_by: string | null;
   recorded_at: string | null;
