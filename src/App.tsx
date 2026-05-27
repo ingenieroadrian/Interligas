@@ -19,6 +19,7 @@ import ConfrontationsPage from './modules/rosters/ConfrontationsPage';
 import RosterPage from './modules/rosters/RosterPage';
 import ResultsPage from './modules/results/ResultsPage';
 import CanchasPage from './modules/admin/CanchasPage';
+import PublicResultsPage from './modules/results/PublicResultsPage';
 
 function AppRoutes() {
   const { user, initialized, isInactiveCoach } = useAuthStore();
@@ -39,6 +40,7 @@ function AppRoutes() {
 
   return (
     <Routes>
+      <Route path="/live" element={<PublicResultsPage />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/setup" element={<SetupPage />} />
 

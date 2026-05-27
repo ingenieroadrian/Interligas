@@ -177,6 +177,12 @@ function SetInput({ label, homeVal, awayVal, onHomeChange, onAwayChange, warn }:
   );
 }
 
+function formatElapsed(secs: number): string {
+  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+  const s = (secs % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ResultsPage() {
   const [confrontations, setConfrontations] = useState<ConfrontationRow[]>([]);
@@ -187,6 +193,8 @@ export default function ResultsPage() {
   const [form, setForm] = useState<ResultForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState<string | null>(null);
+  const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
 
   const { isSuperAdmin, hasPermission, user } = useAuthStore();
   const canEdit = isSuperAdmin() || hasPermission('results', 'edit');
@@ -262,6 +270,22 @@ export default function ResultsPage() {
   }, [search]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const next: Record<string, number> = {};
+      confrontations.forEach(conf => {
+        conf.matches.forEach(m => {
+          if (m.result?.match_status === 'in_progress' && m.result.started_at) {
+            const key = `${conf.id}-${m.slot}`;
+            next[key] = Math.floor((Date.now() - new Date(m.result.started_at).getTime()) / 1000);
+          }
+        });
+      });
+      setElapsedTimes(next);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [confrontations]);
 
   function openEdit(target: EditTarget) {
     setEditTarget(target);
@@ -371,6 +395,24 @@ export default function ResultsPage() {
     loadData();
   }
 
+  async function handleFinishMatch(confrontationId: string, slot: RosterSlot, existingId: string) {
+    setFinishing(`${confrontationId}-${slot}`);
+    await supabase.from('match_results').update({ match_status: 'finished' }).eq('id', existingId);
+
+    // Check if all matches in this confrontation are finished
+    const { data: allResults } = await supabase
+      .from('match_results')
+      .select('match_status')
+      .eq('confrontation_id', confrontationId);
+    if (allResults && allResults.length === 3 && allResults.every(r => r.match_status === 'finished')) {
+      await supabase.from('confrontations').update({ status: 'finalizada' }).eq('id', confrontationId);
+    }
+
+    toast('success', 'Partido finalizado.');
+    setFinishing(null);
+    loadData();
+  }
+
   // Per-slot scoreboard display
   function MatchScoreBoard({ match, confId, homeName, awayName }: {
     match: MatchVS;
@@ -381,6 +423,8 @@ export default function ResultsPage() {
     const r = match.result;
     const startKey = `${confId}-${match.slot}`;
     const isStarting = starting === startKey;
+    const isFinishingThis = finishing === startKey;
+    const elapsed = elapsedTimes[startKey];
 
     // Determine per-set winners for highlighting
     const setResults: Array<{ homeVal: number | null; awayVal: number | null; setWin: 'home' | 'away' | null }> = [
@@ -407,9 +451,10 @@ export default function ResultsPage() {
               {SLOT_LABELS[match.slot]}
             </span>
             {isInProgress && (
-              <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
+              <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
                 En curso
+                {elapsed != null && <span className="font-mono">{formatElapsed(elapsed)}</span>}
               </span>
             )}
             {isFinished && (
@@ -428,6 +473,16 @@ export default function ResultsPage() {
               >
                 <PlayIcon className="w-3 h-3" />
                 {isStarting ? 'Iniciando...' : 'Iniciar'}
+              </button>
+            )}
+            {canEdit && isInProgress && r && (
+              <button
+                onClick={() => handleFinishMatch(confId, match.slot, r.id)}
+                disabled={!!isFinishingThis}
+                className="flex items-center gap-1 text-xs font-medium text-white bg-navy-700 hover:bg-navy-800 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-60"
+              >
+                <CheckCircleIcon className="w-3 h-3" />
+                {isFinishingThis ? '...' : 'Finalizar'}
               </button>
             )}
             {canEdit && (

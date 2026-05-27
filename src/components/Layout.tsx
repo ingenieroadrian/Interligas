@@ -98,6 +98,15 @@ export default function Layout({ children }: LayoutProps) {
             <p className="text-navy-300 text-xs truncate">{role?.name}</p>
           </div>
         </div>
+        <a
+          href="/live"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 w-full px-3 py-2 text-navy-200 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-colors mb-1"
+        >
+          <ChartBarIcon className="w-4 h-4" />
+          Ver Resultados
+        </a>
         <button
           onClick={handleSignOut}
           className="flex items-center gap-2 w-full px-3 py-2 text-navy-200 hover:text-white hover:bg-white/5 rounded-lg text-sm font-medium transition-colors"

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon } from '@heroicons/react/24/outline';
+import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
+import { toast } from '../../components/Toast';
 
 interface Stats {
   leagues: number;
@@ -16,6 +17,9 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ leagues: 0, players: 0, coaches: 0, users: 0 });
   const [categoryBreakdown, setCategoryBreakdown] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [suspendModal, setSuspendModal] = useState(false);
+  const [resumeTime, setResumeTime] = useState('');
+  const [suspending, setSuspending] = useState(false);
   const { user, isSuperAdmin } = useAuthStore();
 
   useEffect(() => {
@@ -46,6 +50,24 @@ export default function DashboardPage() {
     };
     fetchStats();
   }, []);
+
+  async function handleSuspend() {
+    if (!resumeTime) return;
+    setSuspending(true);
+    const { error } = await supabase.from('match_suspensions').insert({
+      reason: 'Lluvia',
+      resume_time: resumeTime,
+      created_by: user?.id || null,
+    });
+    if (error) {
+      toast('error', 'Error al registrar la suspensión.');
+    } else {
+      toast('success', `Partido suspendido. Reinicio programado a las ${resumeTime}`);
+      setSuspendModal(false);
+      setResumeTime('');
+    }
+    setSuspending(false);
+  }
 
   const statCards = [
     { label: 'Ligas Registradas', value: stats.leagues, icon: TrophyIcon, color: 'bg-blue-50 text-blue-600 border-blue-100' },
@@ -89,6 +111,23 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Rain suspension — super admin only */}
+      {isSuperAdmin() && (
+        <div className="card p-5 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Control de Partido</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Registrar suspensión por condiciones climáticas</p>
+          </div>
+          <button
+            onClick={() => setSuspendModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors flex-shrink-0"
+          >
+            <CloudIcon className="w-4 h-4" />
+            Suspendido por lluvia
+          </button>
+        </div>
+      )}
+
       {/* Category breakdown */}
       <div className="card">
         <div className="px-6 py-4 border-b border-slate-100">
@@ -114,6 +153,38 @@ export default function DashboardPage() {
           })}
         </div>
       </div>
+      {/* Suspend modal */}
+      {suspendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-navy-900">Suspender partido por lluvia</h3>
+              <button onClick={() => setSuspendModal(false)} className="text-slate-400 hover:text-slate-600">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-navy-600 mb-1.5">Hora de reinicio estimada</label>
+              <input
+                type="time"
+                className="input-field w-full"
+                value={resumeTime}
+                onChange={e => setResumeTime(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setSuspendModal(false)} className="btn-secondary flex-1">Cancelar</button>
+              <button
+                onClick={handleSuspend}
+                disabled={!resumeTime || suspending}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                {suspending ? 'Registrando...' : 'Confirmar suspensión'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
