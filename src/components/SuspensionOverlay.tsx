@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react';
 import { CloudIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
+import { toast } from './Toast';
 
 interface ActiveSuspension {
   id: string;
-  resume_time: string; // HH:MM:SS from postgres TIME type
+  resume_time: string;
 }
 
 interface Props {
   canClose?: boolean;
-  onClose?: () => void;
   suspension: ActiveSuspension;
+  onClose: () => void;
 }
 
 function parseResumeToday(resumeTime: string): Date {
@@ -33,8 +34,9 @@ function fmtCountdown(secs: number): string {
   return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
 }
 
-export function SuspensionOverlay({ canClose, onClose, suspension }: Props) {
+export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   const [remaining, setRemaining] = useState(0);
+  const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     function calc() {
@@ -46,15 +48,30 @@ export function SuspensionOverlay({ canClose, onClose, suspension }: Props) {
     return () => clearInterval(id);
   }, [suspension.resume_time]);
 
+  async function handleClose() {
+    setClosing(true);
+    const { error } = await supabase
+      .from('match_suspensions')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('id', suspension.id);
+    if (error) {
+      toast('error', 'No se pudo cerrar la suspensión. Intenta nuevamente.');
+      setClosing(false);
+      return;
+    }
+    onClose();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0F172A] text-white select-none">
-      {canClose && onClose && (
+      {canClose && (
         <button
-          onClick={onClose}
-          className="absolute top-5 right-5 flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-medium transition-colors"
+          onClick={handleClose}
+          disabled={closing}
+          className="absolute top-5 right-5 flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-medium transition-colors disabled:opacity-50"
         >
           <XMarkIcon className="w-4 h-4" />
-          Cerrar
+          {closing ? 'Cerrando...' : 'Cerrar'}
         </button>
       )}
 
@@ -82,16 +99,14 @@ export function SuspensionOverlay({ canClose, onClose, suspension }: Props) {
   );
 }
 
-// Hook — returns active suspension for today or null, plus a reload function
+// Hook — returns active suspension for today or null, plus a dismiss function
 export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => void] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
-  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     async function load() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-
       const { data } = await supabase
         .from('match_suspensions')
         .select('id, resume_time')
@@ -100,23 +115,15 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-
       setSuspension(data ? (data as ActiveSuspension) : null);
     }
     load();
-
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
-  }, [tick]);
+  }, []);
 
-  const reload = () => setTick(t => t + 1);
+  // Immediately hides the overlay without waiting for next poll
+  const dismiss = () => setSuspension(null);
 
-  return [suspension, reload];
-}
-
-export async function cancelSuspension(id: string) {
-  await supabase
-    .from('match_suspensions')
-    .update({ cancelled_at: new Date().toISOString() })
-    .eq('id', id);
+  return [suspension, dismiss];
 }

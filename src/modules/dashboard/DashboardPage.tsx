@@ -3,7 +3,7 @@ import { TrophyIcon, UserGroupIcon, AcademicCapIcon, UsersIcon, CloudIcon, XMark
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { toast } from '../../components/Toast';
-import { SuspensionOverlay, useActiveSuspension, cancelSuspension } from '../../components/SuspensionOverlay';
+import { SuspensionOverlay, useActiveSuspension } from '../../components/SuspensionOverlay';
 
 interface Stats {
   leagues: number;
@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const [resumeTime, setResumeTime] = useState('');
   const [suspending, setSuspending] = useState(false);
   const { user, isSuperAdmin } = useAuthStore();
-  const [activeSuspension, reloadSuspension] = useActiveSuspension();
+  const [activeSuspension, dismissSuspension] = useActiveSuspension();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -160,10 +160,7 @@ export default function DashboardPage() {
         <SuspensionOverlay
           suspension={activeSuspension}
           canClose={isSuperAdmin()}
-          onClose={async () => {
-            await cancelSuspension(activeSuspension.id);
-            reloadSuspension();
-          }}
+          onClose={dismissSuspension}
         />
       )}
 
