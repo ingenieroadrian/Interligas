@@ -68,8 +68,8 @@ interface AdminRosterEditorProps {
 function AdminRosterEditor({ state, confrontationId: _cid, saving, onSave, onChange }: AdminRosterEditorProps) {
   const { players, slot1, slot2, doublesCombo, roster, leagueName } = state;
 
-  const validRankCombos = [[1, 2], [1, 3], [2, 3]];
-  const slot1Players = players.filter(p => p.ranking === 2 || p.ranking === 3);
+  // Admin: no ranking restrictions — all players available everywhere
+  const slot1Players = players.filter(p => p.id !== slot2);
   const slot2Players = players.filter(p => p.id !== slot1);
 
   interface DoublesOption { key: string; label: string }
@@ -77,12 +77,9 @@ function AdminRosterEditor({ state, confrontationId: _cid, saving, onSave, onCha
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
       const pA = players[i], pB = players[j];
-      if (pA.ranking === null || pB.ranking === null) continue;
-      const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
-      if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
       doublesOptions.push({
         key: makeComboKey(pA.id, pB.id),
-        label: `${pA.full_name} (Ranking #${pA.ranking}) + ${pB.full_name} (Ranking #${pB.ranking})`,
+        label: `${pA.full_name}${pA.ranking != null ? ` (Ranking #${pA.ranking})` : ''} + ${pB.full_name}${pB.ranking != null ? ` (Ranking #${pB.ranking})` : ''}`,
       });
     }
   }
@@ -115,60 +112,41 @@ function AdminRosterEditor({ state, confrontationId: _cid, saving, onSave, onCha
 
       {/* Partido 1 */}
       <div>
-        <label className="label">
-          Partido 1 — Jugador Individual
-          <span className="ml-1.5 text-xs font-normal text-navy-400">(Ranking 2 o 3)</span>
-        </label>
+        <label className="label">Partido 1 — Jugador Individual</label>
         <select
           className="input-field"
           value={slot1 ?? ''}
           onChange={e => onChange({ slot1: e.target.value || null })}
         >
-          {slot1 && playerLabel(slot1) && (
-            <option value={slot1}>{playerLabel(slot1)}</option>
-          )}
           {!slot1 && <option value="">Seleccionar jugador...</option>}
-          {slot1Players
-            .filter(p => p.id !== slot2 && !isInDoubles(p.id, doublesCombo) && p.id !== slot1)
-            .map(p => (
-              <option key={p.id} value={p.id}>
-                {p.full_name} — Ranking #{p.ranking}
-              </option>
-            ))}
+          {slot1Players.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.full_name}{p.ranking != null ? ` — Ranking #${p.ranking}` : ''}
+            </option>
+          ))}
         </select>
       </div>
 
       {/* Partido 2 */}
       <div>
-        <label className="label">
-          Partido 2 — Jugador Individual
-          <span className="ml-1.5 text-xs font-normal text-navy-400">(Cualquier ranking)</span>
-        </label>
+        <label className="label">Partido 2 — Jugador Individual</label>
         <select
           className="input-field"
           value={slot2 ?? ''}
           onChange={e => onChange({ slot2: e.target.value || null })}
         >
-          {slot2 && playerLabel(slot2) && (
-            <option value={slot2}>{playerLabel(slot2)}</option>
-          )}
           {!slot2 && <option value="">Seleccionar jugador...</option>}
-          {slot2Players
-            .filter(p => p.id !== slot2)
-            .map(p => (
-              <option key={p.id} value={p.id}>
-                {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
-              </option>
-            ))}
+          {slot2Players.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.full_name}{p.ranking != null ? ` — Ranking #${p.ranking}` : ''}
+            </option>
+          ))}
         </select>
       </div>
 
       {/* Dobles */}
       <div>
-        <label className="label">
-          Dobles — Pareja
-          <span className="ml-1.5 text-xs font-normal text-navy-400">(Combo: 1+2, 1+3 ó 2+3)</span>
-        </label>
+        <label className="label">Dobles — Pareja</label>
         <select
           className="input-field"
           value={doublesCombo ?? ''}
