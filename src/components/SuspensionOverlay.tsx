@@ -50,31 +50,17 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
       setRemaining(r);
       if (r <= 0 && !closedRef.current) {
         closedRef.current = true;
-        supabase
-          .from('match_suspensions')
-          .update({ cancelled_at: new Date().toISOString() })
-          .eq('id', suspension.id)
-          .then(() => onClose());
+        onClose();
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [suspension.resume_time, suspension.id, onClose]);
+  }, [suspension.resume_time, onClose]);
 
   async function handleClose() {
     if (closedRef.current) return;
     closedRef.current = true;
     setClosing(true);
-    const { error } = await supabase
-      .from('match_suspensions')
-      .update({ cancelled_at: new Date().toISOString() })
-      .eq('id', suspension.id);
-    if (error) {
-      toast('error', 'No se pudo levantar la suspensión. Intenta nuevamente.');
-      closedRef.current = false;
-      setClosing(false);
-      return;
-    }
-    onClose();
+    await onClose();
   }
 
   return (
@@ -136,20 +122,21 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
 export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => Promise<void>] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
+  async function load() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const { data } = await supabase
+      .from('match_suspensions')
+      .select('id, resume_time, note')
+      .gte('created_at', todayStart.toISOString())
+      .is('cancelled_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setSuspension(data ? (data as ActiveSuspension) : null);
+  }
+
   useEffect(() => {
-    async function load() {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const { data } = await supabase
-        .from('match_suspensions')
-        .select('id, resume_time, note')
-        .gte('created_at', todayStart.toISOString())
-        .is('cancelled_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setSuspension(data ? (data as ActiveSuspension) : null);
-    }
     load();
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
@@ -158,12 +145,15 @@ export function useActiveSuspension(): [ActiveSuspension | null | undefined, () 
   const lift = async () => {
     const current = suspension;
     if (!current) return;
-    // Primero escribe en BD, luego oculta — evita que el intervalo lo traiga de vuelta
+    // 1. Ocultar inmediatamente
+    setSuspension(null);
+    // 2. Escribir en BD
     await supabase
       .from('match_suspensions')
       .update({ cancelled_at: new Date().toISOString() })
       .eq('id', current.id);
-    setSuspension(null);
+    // 3. Recargar para confirmar estado real desde BD
+    await load();
   };
 
   return [suspension, lift];
