@@ -390,41 +390,51 @@ export default function RosterPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // players array is already sorted by ranking asc (nulls last), so array index = priority (0-based)
+  // priority 1 = index 0, priority 2 = index 1, priority 3 = index 2, etc.
+  const priorityOf = (id: string | null): number | null => {
+    if (!id) return null;
+    const idx = players.findIndex(p => p.id === id);
+    return idx === -1 ? null : idx + 1;
+  };
+
   // Validate slots (coach view only)
   useEffect(() => {
     if (isAdmin) return;
     const errors: string[] = [];
-    const find = (id: string | null) => players.find(p => p.id === id) ?? null;
-    const p1 = find(slot1);
-    const p2 = find(slot2);
+    const p1Priority = priorityOf(slot1);
+    const p2Priority = priorityOf(slot2);
 
-    if (p1 && p1.ranking !== null && ![2, 3].includes(p1.ranking))
-      errors.push(`Partido 1: el jugador debe tener ranking 2 o 3 (actual: ${p1.ranking})`);
+    if (slot1 && p1Priority !== null && ![2, 3].includes(p1Priority))
+      errors.push(`Partido 1: debe ser el jugador de prioridad 2 o 3 (prioridad actual: ${p1Priority})`);
 
-    if (p1 && p2 && p1.id === p2.id)
+    if (slot1 && slot2 && slot1 === slot2)
       errors.push('Partido 1 y Partido 2 no pueden ser el mismo jugador');
 
+    if (slot1 && slot2 && p1Priority !== null && p2Priority !== null && p1Priority === p2Priority)
+      errors.push('Partido 1 y Partido 2 no pueden tener la misma prioridad');
+
     setValidationErrors(errors);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot1, slot2, doublesCombo, players, isAdmin]);
 
-  // Slot 1: ranking 2 or 3 (players with no ranking are also allowed so the coach isn't blocked)
-  const slot1Players = players.filter(p => p.ranking === null || p.ranking === 2 || p.ranking === 3);
+  // Slot 1: priority 2 or 3 only
+  const slot1Players = players.filter((_, idx) => idx + 1 === 2 || idx + 1 === 3);
   const slot2Players = players.filter(p => p.id !== slot1);
 
-  const validRankCombos = [[1, 2], [1, 3], [2, 3]];
+  const validPriorityCombos = [[1, 2], [1, 3], [2, 3]];
   interface DoublesOption { key: string; label: string }
   const doublesOptions: DoublesOption[] = [];
   for (let i = 0; i < players.length; i++) {
     for (let j = i + 1; j < players.length; j++) {
       const pA = players[i], pB = players[j];
-      // If both have rankings, validate the combo; if either lacks ranking allow it
-      if (pA.ranking !== null && pB.ranking !== null) {
-        const ranks = [pA.ranking, pB.ranking].sort((a, b) => a - b);
-        if (!validRankCombos.some(([x, y]) => ranks[0] === x && ranks[1] === y)) continue;
-      }
+      const prioA = i + 1;
+      const prioB = j + 1;
+      const prios = [prioA, prioB].sort((a, b) => a - b);
+      if (!validPriorityCombos.some(([x, y]) => prios[0] === x && prios[1] === y)) continue;
       doublesOptions.push({
         key: makeComboKey(pA.id, pB.id),
-        label: `${pA.full_name}${pA.ranking != null ? ` (Ranking #${pA.ranking})` : ''} + ${pB.full_name}${pB.ranking != null ? ` (Ranking #${pB.ranking})` : ''}`,
+        label: `${pA.full_name} (P${prioA}${pA.ranking != null ? `, Ranking #${pA.ranking}` : ''}) + ${pB.full_name} (P${prioB}${pB.ranking != null ? `, Ranking #${pB.ranking}` : ''})`,
       });
     }
   }
@@ -677,7 +687,7 @@ export default function RosterPage() {
             <div>
               <label className="label">
                 Partido 1 — Jugador Individual
-                <span className="ml-1.5 text-xs font-normal text-navy-400">(Ranking 2 o 3)</span>
+                <span className="ml-1.5 text-xs font-normal text-navy-400">(Prioridad 2 o 3)</span>
               </label>
               {locked ? (
                 <ReadonlySlot player={players.find(p => p.id === slot1) ?? null} />
@@ -690,11 +700,14 @@ export default function RosterPage() {
                   <option value="">Seleccionar jugador...</option>
                   {slot1Players
                     .filter(p => p.id !== slot2 && !isInDoubles(p.id, doublesCombo))
-                    .map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} — Ranking #{p.ranking}
-                      </option>
-                    ))}
+                    .map(p => {
+                      const prio = players.findIndex(pl => pl.id === p.id) + 1;
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.full_name} — Prioridad {prio}{p.ranking != null ? ` (Ranking #${p.ranking})` : ''}
+                        </option>
+                      );
+                    })}
                 </select>
               )}
             </div>
@@ -703,7 +716,7 @@ export default function RosterPage() {
             <div>
               <label className="label">
                 Partido 2 — Jugador Individual
-                <span className="ml-1.5 text-xs font-normal text-navy-400">(Cualquier ranking)</span>
+                <span className="ml-1.5 text-xs font-normal text-navy-400">(Cualquier prioridad)</span>
               </label>
               {locked ? (
                 <ReadonlySlot player={players.find(p => p.id === slot2) ?? null} />
@@ -714,11 +727,14 @@ export default function RosterPage() {
                   onChange={e => setSlot2(e.target.value || null)}
                 >
                   <option value="">Seleccionar jugador...</option>
-                  {slot2Players.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name}{p.ranking !== null ? ` — Ranking #${p.ranking}` : ''}
-                    </option>
-                  ))}
+                  {slot2Players.map(p => {
+                    const prio = players.findIndex(pl => pl.id === p.id) + 1;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} — Prioridad {prio}{p.ranking != null ? ` (Ranking #${p.ranking})` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               )}
             </div>
