@@ -50,6 +50,19 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
     return () => clearInterval(id);
   }, [suspension.resume_time]);
 
+  useEffect(() => {
+    if (remaining <= 0) {
+      const timer = setTimeout(async () => {
+        await supabase
+          .from('match_suspensions')
+          .update({ cancelled_at: new Date().toISOString() })
+          .eq('id', suspension.id);
+        onClose();
+      }, 3000); // espera 3 segundos mostrando "Hora alcanzada" y luego cierra
+      return () => clearTimeout(timer);
+    }
+  }, [remaining, suspension.id, onClose]);
+
   async function handleClose() {
     setClosing(true);
     const { error } = await supabase
