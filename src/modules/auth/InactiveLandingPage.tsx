@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrophyIcon, QrCodeIcon, UserGroupIcon, ArrowRightOnRectangleIcon, XMarkIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
-import { useNavigate } from 'react-router-dom';
+import { TrophyIcon, QrCodeIcon, UserGroupIcon, ArrowRightOnRectangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import type { Player, PaymentConfig } from '../../types/database';
@@ -11,7 +10,6 @@ export default function InactiveLandingPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [qrModalPlayer, setQrModalPlayer] = useState<Player | null>(null);
   const [signingOut, setSigningOut] = useState(false);
-  const navigate = useNavigate();
 
   const coachInactive = !coachProfile?.active;
 
@@ -107,9 +105,9 @@ export default function InactiveLandingPage() {
             <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-5">
               <UserGroupIcon className="w-8 h-8 text-amber-400" />
             </div>
-            <h1 className="text-white text-2xl font-bold mb-2">Aviso: Jugadores con membresía inactiva</h1>
+            <h1 className="text-white text-2xl font-bold mb-2">Jugadores con membresía inactiva</h1>
             <p className="text-navy-300 text-sm leading-relaxed">
-              Tienes jugadores a tu cargo cuya membresía aún no ha sido activada para la liga. Puedes continuar al sistema, pero estos jugadores no podrán ser alineados hasta que regularicen su pago.
+              Tienes jugadores a tu cargo cuya membresía aún no ha sido activada. Regulariza los pagos y dirígete a la oficina del árbitro para que activen a tus jugadores.
             </p>
           </div>
         )}
@@ -147,16 +145,6 @@ export default function InactiveLandingPage() {
           </div>
         )}
 
-        {/* ── Continue button — only when coach is active ──────── */}
-        {!coachInactive && (
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center justify-center gap-2 w-full max-w-xs py-3 px-6 bg-white text-navy-900 font-semibold rounded-xl hover:bg-navy-50 transition-colors shadow-sm"
-          >
-            Continuar al sistema
-            <ArrowRightIcon className="w-4 h-4" />
-          </button>
-        )}
       </main>
 
       {/* QR Modal for individual player */}

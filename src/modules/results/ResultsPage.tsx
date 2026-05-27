@@ -75,6 +75,7 @@ interface MatchVS {
   homePlayers: Player[];
   awayPlayers: Player[];
   result: MatchResult | null;
+  court: string | null;
 }
 
 interface ConfrontationRow extends Confrontation {
@@ -219,6 +220,16 @@ export default function ResultsPage() {
       supabase.from('match_results').select('*').in('confrontation_id', confIds),
     ]);
 
+    const rosterIds = (rosters || []).map((r: any) => r.id);
+    const { data: assignments } = rosterIds.length
+      ? await supabase.from('match_assignments').select('roster_id, slot, court').in('roster_id', rosterIds)
+      : { data: [] };
+    // Map: `${roster_id}-${slot}` → court string
+    const courtMap = new Map<string, string>();
+    for (const a of (assignments || [])) {
+      if (a.court) courtMap.set(`${a.roster_id}-${a.slot}`, a.court);
+    }
+
     const playerMap = new Map((players || []).map(p => [p.id, p as Player]));
 
     const enriched: ConfrontationRow[] = confs.map(conf => {
@@ -251,7 +262,11 @@ export default function ResultsPage() {
         }
 
         const result = confResults.find(r => r.slot === slot) || null;
-        return { slot, homePlayers, awayPlayers, result };
+        // Court from match_assignments: check home then away roster
+        const homeCourt = homeRoster ? courtMap.get(`${homeRoster.id}-${slot}`) || null : null;
+        const awayCourt = awayRoster ? courtMap.get(`${awayRoster.id}-${slot}`) || null : null;
+        const court = homeCourt || awayCourt;
+        return { slot, homePlayers, awayPlayers, result, court };
       });
 
       return { ...conf, matches };
@@ -342,6 +357,7 @@ export default function ResultsPage() {
       winner,
       notes: form.notes,
       match_status: winner ? 'finished' : (existing?.match_status === 'in_progress' ? 'in_progress' : 'pending'),
+      finished_at: winner ? new Date().toISOString() : (existing?.finished_at ?? null),
       recorded_by: user?.id || null,
       recorded_at: new Date().toISOString(),
     };
@@ -397,7 +413,7 @@ export default function ResultsPage() {
 
   async function handleFinishMatch(confrontationId: string, slot: RosterSlot, existingId: string) {
     setFinishing(`${confrontationId}-${slot}`);
-    await supabase.from('match_results').update({ match_status: 'finished' }).eq('id', existingId);
+    await supabase.from('match_results').update({ match_status: 'finished', finished_at: new Date().toISOString() }).eq('id', existingId);
 
     // Check if all matches in this confrontation are finished
     const { data: allResults } = await supabase
@@ -446,10 +462,17 @@ export default function ResultsPage() {
       }`}>
         {/* Slot header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-navy-600 uppercase tracking-wide">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-semibold text-navy-600 uppercase tracking-wide flex-shrink-0">
               {SLOT_LABELS[match.slot]}
             </span>
+            {match.court ? (
+              <span className="flex items-center gap-1 text-xs text-navy-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                <MapPinIcon className="w-3 h-3 flex-shrink-0" />{match.court}
+              </span>
+            ) : (
+              <span className="text-xs text-slate-300">Sin cancha</span>
+            )}
             {isInProgress && (
               <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />

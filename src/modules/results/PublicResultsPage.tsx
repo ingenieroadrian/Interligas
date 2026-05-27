@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { TrophyIcon, CalendarDaysIcon, MapPinIcon, CheckCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../lib/supabase';
 import type { PlayerCategory, RosterSlot } from '../../types/database';
+import { SuspensionOverlay, useActiveSuspension } from '../../components/SuspensionOverlay';
 
 const CATEGORIES: PlayerCategory[] = ['12F', '12M', '14F', '14M', '16F', '16M', '18F', '18M'];
 
@@ -21,10 +22,10 @@ function setWinner(home: number, away: number): 'home' | 'away' | null {
   return null;
 }
 
-function formatElapsed(secs: number): string {
-  const m = Math.floor(secs / 60).toString().padStart(2, '0');
-  const s = (secs % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
+function fmtHHMM(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 interface MatchRow {
@@ -41,6 +42,8 @@ interface MatchRow {
   winner: 'home' | 'away' | null;
   match_status: string;
   started_at: string | null;
+  finished_at: string | null;
+  court: string | null;
 }
 
 interface ConfRow {
@@ -64,12 +67,14 @@ export default function PublicResultsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [elapsedTimes, setElapsedTimes] = useState<Record<string, number>>({});
+  const activeSuspension = useActiveSuspension();
 
   const loadData = useCallback(async () => {
+    // Fetch confrontations that might have active matches
     const { data: confs } = await supabase
       .from('confrontations')
       .select('id, category, match_date, match_time, status, home_league_id, away_league_id, home_league:leagues!confrontations_home_league_id_fkey(name), away_league:leagues!confrontations_away_league_id_fkey(name), court:courts(name)')
-      .in('status', ['en_curso', 'finalizada', 'cerrada'])
+      .in('status', ['cerrada', 'en_curso', 'finalizada'])
       .order('match_date', { ascending: false });
 
     if (!confs || confs.length === 0) { setConfrontations([]); setLoading(false); return; }
@@ -79,7 +84,7 @@ export default function PublicResultsPage() {
     const [{ data: rosters }, { data: players }, { data: results }] = await Promise.all([
       supabase.from('rosters').select('confrontation_id, league_id, slot_1, slot_2, slot_doubles_a, slot_doubles_b').in('confrontation_id', confIds).eq('is_submitted', true),
       supabase.from('players').select('id, full_name'),
-      supabase.from('match_results').select('confrontation_id, slot, home_player_ids, away_player_ids, set1_home, set1_away, set2_home, set2_away, set3_home, set3_away, wo, winner, match_status, started_at').in('confrontation_id', confIds),
+      supabase.from('match_results').select('confrontation_id, slot, home_player_ids, away_player_ids, set1_home, set1_away, set2_home, set2_away, set3_home, set3_away, wo, winner, match_status, started_at, finished_at').in('confrontation_id', confIds),
     ]);
 
     const pMap = new Map((players || []).map((p: any) => [p.id as string, p.full_name as string]));
@@ -119,6 +124,8 @@ export default function PublicResultsPage() {
           winner: r?.winner || null,
           match_status: r?.match_status || 'pending',
           started_at: r?.started_at || null,
+          finished_at: r?.finished_at || null,
+          court: null, // no per-slot court in public view; conf.court is shown in header
         };
       });
 
@@ -137,7 +144,12 @@ export default function PublicResultsPage() {
       };
     });
 
-    setConfrontations(rows);
+    // Only show confrontations that have at least one match in progress or finished
+    const visible = rows.filter(c =>
+      c.matches.some(m => m.match_status === 'in_progress' || m.match_status === 'finished')
+    );
+
+    setConfrontations(visible);
     setLoading(false);
   }, []);
 
@@ -148,6 +160,7 @@ export default function PublicResultsPage() {
     return () => clearInterval(id);
   }, [loadData]);
 
+  // Elapsed ticker (seconds since started_at for in_progress)
   useEffect(() => {
     const interval = setInterval(() => {
       const next: Record<string, number> = {};
@@ -177,6 +190,11 @@ export default function PublicResultsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* Suspension overlay — no close button for public */}
+      {activeSuspension && (
+        <SuspensionOverlay suspension={activeSuspension} canClose={false} />
+      )}
+
       <header className="bg-navy-900 px-6 py-5">
         <div className="max-w-5xl mx-auto flex items-center gap-3">
           <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center flex-shrink-0">
@@ -248,11 +266,17 @@ export default function PublicResultsPage() {
               </div>
 
               <div className="divide-y divide-slate-50">
-                {conf.matches.map(m => {
+                {conf.matches.filter(m => m.match_status === 'in_progress' || m.match_status === 'finished').map(m => {
                   const key = `${conf.id}-${m.slot}`;
                   const elapsed = elapsedTimes[key];
                   const mInProgress = m.match_status === 'in_progress';
-                  const mFinished = m.match_status === 'finished' || !!m.winner;
+                  const mFinished = m.match_status === 'finished';
+
+                  // Duration for finished matches
+                  const durationSecs = (mFinished && m.started_at && m.finished_at)
+                    ? Math.floor((new Date(m.finished_at).getTime() - new Date(m.started_at).getTime()) / 1000)
+                    : null;
+
                   const sets = [
                     { h: m.set1_home, a: m.set1_away },
                     { h: m.set2_home, a: m.set2_away },
@@ -261,17 +285,29 @@ export default function PublicResultsPage() {
 
                   return (
                     <div key={m.slot} className="px-5 py-3">
+                      {/* Slot header with court */}
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-navy-500 uppercase tracking-wide">{SLOT_LABELS[m.slot]}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-navy-500 uppercase tracking-wide">{SLOT_LABELS[m.slot]}</span>
+                          {conf.court && (
+                            <span className="flex items-center gap-1 text-xs text-navy-400 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                              <MapPinIcon className="w-3 h-3" />{conf.court}
+                            </span>
+                          )}
+                          {!conf.court && (
+                            <span className="text-xs text-slate-300">Sin cancha</span>
+                          )}
+                        </div>
                         {mInProgress && (
                           <span className="flex items-center gap-1.5 text-xs text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
-                            {elapsed != null ? <span className="font-mono">{formatElapsed(elapsed)}</span> : 'En curso'}
+                            {elapsed != null ? <span className="font-mono">{fmtHHMM(elapsed)}</span> : 'En curso'}
                           </span>
                         )}
                         {mFinished && (
                           <span className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full font-medium">
-                            <CheckCircleIcon className="w-3 h-3" /> Finalizado
+                            <CheckCircleIcon className="w-3 h-3" />
+                            {durationSecs != null ? <span className="font-mono">{fmtHHMM(durationSecs)}</span> : 'Finalizado'}
                           </span>
                         )}
                       </div>

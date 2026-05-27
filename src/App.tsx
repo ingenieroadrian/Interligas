@@ -35,12 +35,8 @@ function AppRoutes() {
     );
   }
 
-  // Hard block: coach profile missing or coach.active === false → block all routes
   const isCoachRole = role?.name === 'Entrenador';
-  const hardBlocked = user && isCoachRole && (coachProfile === null || !coachProfile.active);
-  // Soft warning: coach is active but has inactive players → redirect once to landing, but allow /acceso-bloqueado through
-  const softWarning = user && isCoachRole && coachProfile?.active && hasInactivePlayers;
-  const coachBlocked = hardBlocked || softWarning;
+  const coachBlocked = user && isCoachRole && (coachProfile === null || !coachProfile.active || hasInactivePlayers);
 
   return (
     <Routes>
