@@ -61,7 +61,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
       }, 3000); // espera 3 segundos mostrando "Hora alcanzada" y luego cierra
       return () => clearTimeout(timer);
     }
-  }, [remaining, suspension.id, onClose]);
+  }, [remaining, suspension.id]);
 
   async function handleClose() {
     setClosing(true);
