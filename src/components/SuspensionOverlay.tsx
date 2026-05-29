@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CloudIcon, XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
 import { toast } from './Toast';
 
 interface ActiveSuspension {
   id: string;
-  resume_time: string;
+  resume_time: string; // HH:MM or HH:MM:SS from postgres
   note?: string | null;
 }
 
@@ -42,25 +42,26 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   const [remaining, setRemaining] = useState(() => calcRemaining(suspension.resume_time));
   const [closing, setClosing] = useState(false);
   const isResumeReached = remaining <= 0;
-  const closedRef = useRef(false);
 
   useEffect(() => {
     const id = setInterval(() => {
-      const r = calcRemaining(suspension.resume_time);
-      setRemaining(r);
-      if (r <= 0 && !closedRef.current) {
-        closedRef.current = true;
-        onClose();
-      }
+      setRemaining(calcRemaining(suspension.resume_time));
     }, 1000);
     return () => clearInterval(id);
-  }, [suspension.resume_time, onClose]);
+  }, [suspension.resume_time]);
 
   async function handleClose() {
-    if (closedRef.current) return;
-    closedRef.current = true;
     setClosing(true);
-    await onClose();
+    const { error } = await supabase
+      .from('match_suspensions')
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq('id', suspension.id);
+    if (error) {
+      toast('error', 'No se pudo levantar la suspensión. Intenta nuevamente.');
+      setClosing(false);
+      return;
+    }
+    onClose();
   }
 
   return (
@@ -104,7 +105,7 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
               <CheckCircleIcon className="w-6 h-6" />
               <p className="text-xl font-bold uppercase tracking-widest">Hora de reinicio alcanzada</p>
             </div>
-            <p className="text-slate-400 text-sm uppercase tracking-widest">Levantando suspensión...</p>
+            <p className="text-slate-400 text-sm uppercase tracking-widest">En espera del reinicio oficial</p>
           </>
         ) : (
           <>
@@ -119,41 +120,39 @@ export function SuspensionOverlay({ canClose, suspension, onClose }: Props) {
   );
 }
 
+// Hook — returns [activeSuspension, liftFn]
+// liftFn writes cancelled_at to DB and hides the overlay
 export function useActiveSuspension(): [ActiveSuspension | null | undefined, () => Promise<void>] {
   const [suspension, setSuspension] = useState<ActiveSuspension | null | undefined>(undefined);
 
-  async function load() {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const { data } = await supabase
-      .from('match_suspensions')
-      .select('id, resume_time, note')
-      .gte('created_at', todayStart.toISOString())
-      .is('cancelled_at', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setSuspension(data ? (data as ActiveSuspension) : null);
-  }
-
   useEffect(() => {
+    async function load() {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data } = await supabase
+        .from('match_suspensions')
+        .select('id, resume_time, note')
+        .gte('created_at', todayStart.toISOString())
+        .is('cancelled_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setSuspension(data ? (data as ActiveSuspension) : null);
+    }
     load();
-    const id = setInterval(load, 5000);
+    const id = setInterval(load, 15000);
     return () => clearInterval(id);
   }, []);
 
   const lift = async () => {
     const current = suspension;
-    if (!current) return;
-    // 1. Ocultar inmediatamente
     setSuspension(null);
-    // 2. Escribir en BD
-    await supabase
-      .from('match_suspensions')
-      .update({ cancelled_at: new Date().toISOString() })
-      .eq('id', current.id);
-    // 3. Recargar para confirmar estado real desde BD
-    await load();
+    if (current) {
+      await supabase
+        .from('match_suspensions')
+        .update({ cancelled_at: new Date().toISOString() })
+        .eq('id', current.id);
+    }
   };
 
   return [suspension, lift];
