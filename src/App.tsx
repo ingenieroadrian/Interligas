@@ -6,7 +6,6 @@ import { ToastContainer } from './components/Toast';
 import Layout from './components/Layout';
 import RouteGuard from './components/RouteGuard';
 import LoginPage from './modules/auth/LoginPage';
-import SetupPage from './modules/auth/SetupPage';
 import InactiveLandingPage from './modules/auth/InactiveLandingPage';
 import DashboardPage from './modules/dashboard/DashboardPage';
 import LeaguesPage from './modules/registration/LeaguesPage';
@@ -42,7 +41,6 @@ function AppRoutes() {
     <Routes>
       <Route path="/live" element={<PublicResultsPage />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/setup" element={<SetupPage />} />
 
       {/* Coach landing — accessible to hard-blocked or soft-warned coaches */}
       <Route
